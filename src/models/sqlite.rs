@@ -1,7 +1,15 @@
 use crate::Service;
 
 pub fn init_sqlite(db_name: &str, db_path: &str) {
-    let conn = rusqlite::Connection::open(format!("{}/{}", db_path, db_name)).unwrap();
+    let conn = match rusqlite::Connection::open(format!("{}/{}", db_path, db_name)) {
+        Ok(conn) => conn,
+        Err(err) => {
+            eprintln!("Unable to open the DB: {err}");
+            std::fs::File::create_new(format!("{}/{}", db_path, db_name))
+                .unwrap_or_else(|err| panic!("DB file already exists: {err}"));
+            return;
+        }
+    };
     conn.execute(
         "CREATE TABLE IF NOT EXISTS services (
 	    id INTEGER PRIMARY KEY,

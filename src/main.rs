@@ -16,7 +16,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
     let mut browser = MdnsBrowser::new(ServiceType::new("http", "tcp")?);
     let scan_time: u8 = 1;
-    let root = env!("CARGO_MANIFEST_DIR");
+    // let root = env!("CARGO_MANIFEST_DIR");
+    let root = "./";
     init_sqlite("mDns.db", root);
 
     println!("Initiating {scan_time} second scan");
