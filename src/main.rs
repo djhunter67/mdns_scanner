@@ -94,7 +94,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_sqlite(DB_NAME, DB_PATH)?;
 
     for browse in &mut browser {
-        // let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
         println!("Initiating {scan_time} second scan");
         // browse.set_network_interface(NetworkInterface::AtIndex(3));
         browse.set_service_discovered_callback(Box::new(
