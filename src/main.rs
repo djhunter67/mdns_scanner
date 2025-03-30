@@ -1,46 +1,32 @@
+pub mod models;
+
 use std::{
     any::Any,
     sync::{Arc, Mutex},
 };
 
+use models::sqlite::{get_all_items, get_count, init_sqlite};
+use serde::Serialize;
 use zeroconf::{
     prelude::{TEventLoop, TMdnsBrowser},
     MdnsBrowser, NetworkInterface, ServiceDiscovery, ServiceType,
 };
 
-#[derive(Default)]
-struct Service {
-    name: String,
-    address: String,
-    port: u16,
-    protocol: String,
-    txt: Option<serde_json::value::Value>,
-}
-
-impl From<ServiceDiscovery> for Service {
-    fn from(val: ServiceDiscovery) -> Self {
-        Service {
-            name: val.name().to_string(),
-            address: val.address().to_string(),
-            port: *val.port(),
-            protocol: val.service_type().protocol().to_string(),
-            txt: serde_json::from_str(&serde_json::to_string(&val.txt().clone().unwrap()).unwrap())
-                .ok(),
-        }
-    }
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
     let mut browser = MdnsBrowser::new(ServiceType::new("http", "tcp")?);
-    // GEt the version of config.toml
+    let scan_time: u8 = 1;
     let root = env!("CARGO_MANIFEST_DIR");
-    println!("Root: {}", root);
     init_sqlite("mDns.db", root);
 
+    println!("Initiating {scan_time} second scan");
+
     browser.set_network_interface(NetworkInterface::AtIndex(3));
+    //let context = browser.set_context(Arc::new());
     browser.set_service_discovered_callback(Box::new(
         move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
+            println!("\tDiscovered: {}", result.clone().unwrap().name());
+
             captured_svc.lock().unwrap().push(result.unwrap().into());
 
             let conn = rusqlite::Connection::open("mDns.db").unwrap();
@@ -57,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		],
 
 	    )
-	    .unwrap();
+		.unwrap_or_default();
         },
     ));
 
@@ -66,26 +52,84 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(err) => panic!("unable to browse services: {err}"),
     };
 
-    println!("Browsing for services...");
-    loop {
-        event_loop.poll(std::time::Duration::from_secs(1))?;
+    let start_time = std::time::Instant::now();
 
-        // Implement a delay to avoid excessive CPU usage
+    loop {
+        match event_loop.poll(std::time::Duration::from_millis(157)) {
+            Ok(()) => (),
+            Err(err) => panic!("Unable to poll: {err}"),
+        };
+
+        if start_time.elapsed().as_secs() > scan_time.into() {
+            break;
+        }
+    }
+
+    println!("\nDiscovered {} mDns devices", get_count("mDns.db", root));
+
+    let all_items = get_all_items("mDns.db", root);
+    all_items.iter().for_each(|item| {
+        println!("\nName: {}", item.name());
+        println!("IP: {}", item.address)
+    });
+
+    Ok(())
+}
+
+#[derive(Default, Serialize, Debug)]
+pub struct Service {
+    name: String,
+    address: String,
+    port: u16,
+    protocol: String,
+    txt: Option<serde_json::value::Value>,
+}
+
+impl From<ServiceDiscovery> for Service {
+    fn from(val: ServiceDiscovery) -> Self {
+        Service {
+            name: val.name().to_string(),
+            address: val.address().to_string(),
+            port: *val.port(),
+            protocol: val.service_type().protocol().to_string(),
+            txt: serde_json::from_str(
+                &serde_json::to_string(&val.txt().clone().unwrap_or_default()).unwrap(),
+            )
+            .ok(),
+        }
     }
 }
 
-fn init_sqlite(db_name: &str, db_path: &str) {
-    let conn = rusqlite::Connection::open(format!("{}/{}", db_path, db_name)).unwrap();
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS services (
-	    id INTEGER PRIMARY KEY,
-	    name TEXT NOT NULL,
-	    address TEXT NOT NULL,
-	    port INTEGER NOT NULL,
-	    protocol TEXT NOT NULL,
-	    txt TEXT
-	)",
-        (),
-    )
-    .unwrap();
+#[allow(dead_code)]
+impl Service {
+    fn as_string(&self) -> String {
+        format!(
+            "Name: {}, Address: {}, Port: {}, Protocol: {}, Txt: {}",
+            self.name(),
+            self.address(),
+            self.port(),
+            self.protocol(),
+            self.txt().unwrap()
+        )
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn address(&self) -> &str {
+        &self.address
+    }
+
+    fn port(&self) -> u16 {
+        self.port
+    }
+
+    fn protocol(&self) -> &str {
+        &self.protocol
+    }
+
+    fn txt(&self) -> Option<&serde_json::value::Value> {
+        self.txt.as_ref()
+    }
 }
