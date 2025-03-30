@@ -437,20 +437,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "deepseek-coder"
-version = "0.1.0"
-dependencies = [
- "avahi-sys",
- "mdns",
- "pcap",
- "rusqlite",
- "serde",
- "serde_json",
- "tokio",
- "zeroconf",
-]
-
-[[package]]
 name = "derive-getters"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -854,6 +840,20 @@ dependencies = [
  "futures-util",
  "log",
  "net2",
+]
+
+[[package]]
+name = "mdns_scanner"
+version = "0.1.0"
+dependencies = [
+ "avahi-sys",
+ "mdns",
+ "pcap",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "zeroconf",
 ]
 
 [[package]]
