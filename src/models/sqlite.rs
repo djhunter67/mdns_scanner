@@ -1,13 +1,17 @@
 use crate::Service;
 
-pub fn init_sqlite(db_name: &str, db_path: &str) {
-    let conn = match rusqlite::Connection::open(format!("{}/{}", db_path, db_name)) {
+/// # Panics
+///   - Attempt to create a file that already exists
+/// # Errors
+///   - Unable to create the db file
+pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> {
+    let conn = match rusqlite::Connection::open(format!("{db_path}/{db_name}")) {
         Ok(conn) => conn,
         Err(err) => {
             eprintln!("Unable to open the DB: {err}");
-            std::fs::File::create_new(format!("{}/{}", db_path, db_name))
+            std::fs::File::create_new(format!("{db_path}/{db_name}"))
                 .unwrap_or_else(|err| panic!("DB file already exists: {err}"));
-            return;
+            return Err(rusqlite::Error::InvalidPath(db_path.into()));
         }
     };
     conn.execute(
@@ -20,26 +24,38 @@ pub fn init_sqlite(db_name: &str, db_path: &str) {
 	    txt TEXT
 	)",
         (),
-    )
-    .unwrap();
+    )?;
+
+    Ok(())
 }
 
-pub fn get_count(db_name: &str, db_path: &str) -> u8 {
-    let conn = rusqlite::Connection::open(format!("{}/{}", db_path, db_name)).unwrap();
-    let mut stmt = conn.prepare("SELECT COUNT(*) FROM services").unwrap();
-    let count = stmt
-        .query_map([], |row| {
-            let count: u8 = row.get_unwrap::<usize, u8>(0);
-            Ok(count)
-        })
-        .unwrap();
+/// # Panics
+///  - There is no result from the database
+/// # Errors
+///  - None
+pub fn get_count(db_name: &str, db_path: &str) -> Result<u8, rusqlite::Error> {
+    let conn = rusqlite::Connection::open(format!("{db_path}/{db_name}"))?;
+    let mut stmt = conn.prepare("SELECT COUNT(*) FROM services")?;
+    let count = stmt.query_map([], |row| {
+        let count: u8 = row.get_unwrap::<usize, u8>(0);
+        Ok(count)
+    })?;
 
-    *count.collect::<Vec<_>>().first().unwrap().as_ref().unwrap()
+    Ok(*count
+        .collect::<Vec<_>>()
+        .first()
+        .expect("No values to get")
+        .as_ref()
+        .expect("Can't reference a non-existent value"))
 }
 
-pub fn get_all_items(db_name: &str, db_path: &str) -> Vec<Service> {
-    let conn = rusqlite::Connection::open(format!("{}/{}", db_path, db_name)).unwrap();
-    let mut stmt = conn.prepare("SELECT * FROM services").unwrap();
+/// # Panics
+///   - ``SqliteDB`` returns no information stored
+/// # Errors
+///   - None
+pub fn get_all_items(db_name: &str, db_path: &str) -> Result<Vec<Service>, rusqlite::Error> {
+    let conn = rusqlite::Connection::open(format!("{db_path}/{db_name}"))?;
+    let mut stmt = conn.prepare("SELECT * FROM services")?;
     let rows = stmt.query_map([], |row| {
         let _id: u32 = row.get_unwrap(0);
         let name: String = row.get_unwrap(1);
@@ -58,9 +74,9 @@ pub fn get_all_items(db_name: &str, db_path: &str) -> Vec<Service> {
     });
 
     let mut services: Vec<Service> = Vec::new();
-    rows.unwrap().by_ref().for_each(|row| {
-        services.push(row.unwrap());
+    rows?.by_ref().for_each(|row| {
+        services.push(row.expect("Unable to use the returned row"));
     });
 
-    services
+    Ok(services)
 }

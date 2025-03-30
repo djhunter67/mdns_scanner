@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scan_time: u8 = 1;
     // let root = env!("CARGO_MANIFEST_DIR");
     let root = "./";
-    init_sqlite("mDns.db", root);
+    init_sqlite("mDns.db", root)?;
 
     println!("Initiating {scan_time} second scan");
 
@@ -31,11 +31,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 result.clone().expect("No results").name()
             );
 
-            captured_svc.lock()?.push(result.unwrap().into());
+            captured_svc.lock().expect("Lock poisoned").push(
+                result
+                    .expect("No scan results to push")
+                    .try_into()
+                    .expect("Unable to transform results"),
+            );
 
-            let conn = rusqlite::Connection::open("mDns.db").unwrap();
+            let conn = rusqlite::Connection::open("mDns.db").expect("DB does not exist");
 
-            let service = captured_svc.lock().unwrap().pop().unwrap();
+            let service = captured_svc
+                .lock()
+                .expect("Lock is poisoned")
+                .pop()
+                .expect("No values to pop");
             conn.execute(
 		"INSERT INTO services (name, address, port, protocol, txt) VALUES (?1, ?2, ?3, ?4, ?5)",
 		[
@@ -43,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		    &service.address,
 		    &service.port.to_string(),
 		    &service.protocol,
-		    &service.txt.unwrap().to_string(),
+		    &service.txt.expect("No TXT provided").to_string(),
 		],
 
 	    )
@@ -69,13 +78,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("\nDiscovered {} mDns devices", get_count("mDns.db", root));
+    println!("\nDiscovered {} mDns devices", get_count("mDns.db", root)?);
 
     let all_items = get_all_items("mDns.db", root);
-    all_items.iter().for_each(|item| {
+    for item in &all_items? {
         println!("\nName: {}", item.name());
-        println!("IP: {}", item.address)
-    });
+        println!("IP: {}", item.address);
+    }
 
     Ok(())
 }
@@ -89,18 +98,21 @@ pub struct Service {
     txt: Option<serde_json::value::Value>,
 }
 
-impl From<ServiceDiscovery> for Service {
-    fn from(val: ServiceDiscovery) -> Self {
-        Service {
+impl TryFrom<ServiceDiscovery> for Service {
+    type Error = ();
+
+    fn try_from(val: ServiceDiscovery) -> Result<Self, Self::Error> {
+        Ok(Self {
             name: val.name().to_string(),
             address: val.address().to_string(),
             port: *val.port(),
             protocol: val.service_type().protocol().to_string(),
             txt: serde_json::from_str(
-                &serde_json::to_string(&val.txt().clone().unwrap_or_default()).unwrap(),
+                &serde_json::to_string(&val.txt().clone().unwrap_or_default())
+                    .expect("No TXT record found"),
             )
             .ok(),
-        }
+        })
     }
 }
 
@@ -113,7 +125,7 @@ impl Service {
             self.address(),
             self.port(),
             self.protocol(),
-            self.txt().unwrap()
+            self.txt().expect("No txt record found")
         )
     }
 
@@ -125,7 +137,7 @@ impl Service {
         &self.address
     }
 
-    fn port(&self) -> u16 {
+    const fn port(&self) -> u16 {
         self.port
     }
 
@@ -133,7 +145,7 @@ impl Service {
         &self.protocol
     }
 
-    fn txt(&self) -> Option<&serde_json::value::Value> {
+    const fn txt(&self) -> Option<&serde_json::value::Value> {
         self.txt.as_ref()
     }
 }
