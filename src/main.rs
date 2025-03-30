@@ -1,86 +1,176 @@
 pub mod models;
 
-use std::{
-    any::Any,
-    sync::{Arc, Mutex},
-};
+use std::{any::Any, sync::Arc};
 
 use models::sqlite::{get_all_items, get_count, init_sqlite};
 use serde::Serialize;
+use strum::{EnumIter, IntoEnumIterator};
 use zeroconf::{
+    avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
     MdnsBrowser, NetworkInterface, ServiceDiscovery, ServiceType,
 };
 
+const DB_PATH: &str = "./";
+const DB_NAME: &str = "mDns.db";
+
+#[derive(EnumIter)]
+enum ServiceDetect {
+    Http = 0,
+    Scanner = 1,
+    AndroidTvRemote2 = 2,
+    Uscans = 3,
+    PdlDataStream = 4,
+    Printer = 5,
+    NvShieldRemote = 6,
+    HttpAlt = 7,
+    SftpSsh = 8,
+    Ssh = 9,
+    GoogleZone = 10,
+    GoogleCast = 11,
+    CompanionLink = 12,
+    SpotifyConnect = 13,
+    AirPlay = 14,
+}
+
+impl ServiceDetect {
+    const fn length() -> usize {
+        [
+            Self::Http,
+            Self::Scanner,
+            Self::AndroidTvRemote2,
+            Self::Uscans,
+            Self::PdlDataStream,
+            Self::Printer,
+            Self::NvShieldRemote,
+            Self::HttpAlt,
+            Self::SftpSsh,
+            Self::Ssh,
+            Self::GoogleZone,
+            Self::GoogleCast,
+            Self::CompanionLink,
+            Self::SpotifyConnect,
+            Self::AirPlay,
+        ]
+        .len()
+    }
+}
+
+impl IntoIterator for ServiceDetect {
+    type Item = Self;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        vec![
+            Self::Http,
+            Self::Scanner,
+            Self::AndroidTvRemote2,
+            Self::Uscans,
+            Self::PdlDataStream,
+            Self::Printer,
+            Self::NvShieldRemote,
+            Self::HttpAlt,
+            Self::SftpSsh,
+            Self::Ssh,
+            Self::GoogleZone,
+            Self::GoogleCast,
+            Self::CompanionLink,
+            Self::SpotifyConnect,
+            Self::AirPlay,
+        ]
+        .into_iter()
+    }
+}
+
+impl From<ServiceDetect> for &str {
+    fn from(val: ServiceDetect) -> Self {
+        match val {
+            ServiceDetect::Http => "http",
+            ServiceDetect::Scanner => "scanner",
+            ServiceDetect::AndroidTvRemote2 => "androidtvremote2",
+            ServiceDetect::Uscans => "uscans",
+            ServiceDetect::PdlDataStream => "pdldatastream",
+            ServiceDetect::Printer => "printer",
+            ServiceDetect::NvShieldRemote => "nvshieldremote",
+            ServiceDetect::HttpAlt => "http-alt",
+            ServiceDetect::SftpSsh => "sftp-ssh",
+            ServiceDetect::Ssh => "ssh",
+            ServiceDetect::GoogleZone => "googlezone",
+            ServiceDetect::GoogleCast => "googlecast",
+            ServiceDetect::CompanionLink => "companionlink",
+            ServiceDetect::SpotifyConnect => "spotifyconnect",
+            ServiceDetect::AirPlay => "airplay",
+        }
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
-    let mut browser = MdnsBrowser::new(ServiceType::new("http", "tcp")?);
+    let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
+    let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
+        .map(|val| {
+            MdnsBrowser::new(
+                ServiceType::new(val.into(), "tcp").expect("Unable to create service type"),
+            )
+        })
+        .collect::<Vec<AvahiMdnsBrowser>>()
+        .try_into()
+        .expect("Unable to convert to array");
+
     let scan_time: u8 = 1;
     // let root = env!("CARGO_MANIFEST_DIR");
     let root = "./";
     init_sqlite("mDns.db", root)?;
 
-    println!("Initiating {scan_time} second scan");
+    for browse in &mut browser {
+        // let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
+        println!("Initiating {scan_time} second scan");
+        browse.set_network_interface(NetworkInterface::AtIndex(3));
+        browse.set_service_discovered_callback(Box::new(
+            move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
+                println!(
+                    "\tDiscovered: {}",
+                    result.clone().expect("No results").name()
+                );
 
-    browser.set_network_interface(NetworkInterface::AtIndex(3));
-    //let context = browser.set_context(Arc::new());
-    browser.set_service_discovered_callback(Box::new(
-        move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
-            println!(
-                "\tDiscovered: {}",
-                result.clone().expect("No results").name()
-            );
+                let conn = rusqlite::Connection::open("mDns.db").expect("DB does not exist");
 
-            captured_svc.lock().expect("Lock poisoned").push(
-                result
-                    .expect("No scan results to push")
-                    .try_into()
-                    .expect("Unable to transform results"),
-            );
+                conn.execute(
+		    "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+		    [
+			chrono::Local::now().time().to_string(),
+			chrono::Local::now().date_naive().to_string(),
+			result.clone().expect("Does not exist").name().to_string(),
+			result.clone().expect("Does not exist").address().to_string(),
+		        result.clone().expect("Does not exist").port().to_string(),
+		        result.expect("Does not exist").host_name().to_string(),
+		    ],
+	        )
+		    .unwrap_or_default();
+            },
+        ));
 
-            let conn = rusqlite::Connection::open("mDns.db").expect("DB does not exist");
-
-            let service = captured_svc
-                .lock()
-                .expect("Lock is poisoned")
-                .pop()
-                .expect("No values to pop");
-            conn.execute(
-		"INSERT INTO services (name, address, port, protocol, txt) VALUES (?1, ?2, ?3, ?4, ?5)",
-		[
-		    &service.name,
-		    &service.address,
-		    &service.port.to_string(),
-		    &service.protocol,
-		    &service.txt.expect("No TXT provided").to_string(),
-		],
-
-	    )
-		.unwrap_or_default();
-        },
-    ));
-
-    let event_loop = match browser.browse_services() {
-        Ok(object) => object,
-        Err(err) => panic!("unable to browse services: {err}"),
-    };
-
-    let start_time = std::time::Instant::now();
-
-    loop {
-        match event_loop.poll(std::time::Duration::from_millis(157)) {
-            Ok(()) => (),
-            Err(err) => panic!("Unable to poll: {err}"),
+        let event_loop = match browse.browse_services() {
+            Ok(object) => object,
+            Err(err) => panic!("unable to browse services: {err}"),
         };
 
-        if start_time.elapsed().as_secs() > scan_time.into() {
-            break;
+        let start_time = std::time::Instant::now();
+
+        loop {
+            match event_loop.poll(std::time::Duration::from_millis(2)) {
+                Ok(()) => (),
+                Err(err) => panic!("Unable to poll: {err}"),
+            };
+
+            if start_time.elapsed().as_secs() > scan_time.into() {
+                break;
+            }
         }
     }
 
-    println!("\nDiscovered {} mDns devices", get_count("mDns.db", root)?);
+    println!("\nDiscovered {} mDns devices", get_count(&mut conn)?);
 
-    let all_items = get_all_items("mDns.db", root);
+    let all_items = get_all_items(&mut conn);
     for item in &all_items? {
         println!("\nName: {}", item.name());
         println!("IP: {}", item.address);
@@ -91,11 +181,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[derive(Default, Serialize, Debug)]
 pub struct Service {
+    time: String,
+    date: String,
     name: String,
     address: String,
     port: u16,
-    protocol: String,
-    txt: Option<serde_json::value::Value>,
+    hostname: String,
 }
 
 impl TryFrom<ServiceDiscovery> for Service {
@@ -103,15 +194,12 @@ impl TryFrom<ServiceDiscovery> for Service {
 
     fn try_from(val: ServiceDiscovery) -> Result<Self, Self::Error> {
         Ok(Self {
+            time: String::new(),
+            date: String::new(),
             name: val.name().to_string(),
             address: val.address().to_string(),
             port: *val.port(),
-            protocol: val.service_type().protocol().to_string(),
-            txt: serde_json::from_str(
-                &serde_json::to_string(&val.txt().clone().unwrap_or_default())
-                    .expect("No TXT record found"),
-            )
-            .ok(),
+            hostname: val.host_name().to_string(),
         })
     }
 }
@@ -120,12 +208,11 @@ impl TryFrom<ServiceDiscovery> for Service {
 impl Service {
     fn as_string(&self) -> String {
         format!(
-            "Name: {}, Address: {}, Port: {}, Protocol: {}, Txt: {}",
+            "Name: {}, Address: {}, Port: {}, Protocol: {}",
             self.name(),
             self.address(),
             self.port(),
-            self.protocol(),
-            self.txt().expect("No txt record found")
+            self.hostname(),
         )
     }
 
@@ -141,11 +228,7 @@ impl Service {
         self.port
     }
 
-    fn protocol(&self) -> &str {
-        &self.protocol
-    }
-
-    const fn txt(&self) -> Option<&serde_json::value::Value> {
-        self.txt.as_ref()
+    fn hostname(&self) -> &str {
+        &self.hostname
     }
 }

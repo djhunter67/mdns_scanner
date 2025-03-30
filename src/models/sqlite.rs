@@ -1,3 +1,5 @@
+use rusqlite::Connection;
+
 use crate::Service;
 
 /// # Panics
@@ -14,17 +16,21 @@ pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> 
             return Err(rusqlite::Error::InvalidPath(db_path.into()));
         }
     };
-    conn.execute(
+    match conn.execute(
         "CREATE TABLE IF NOT EXISTS services (
 	    id INTEGER PRIMARY KEY,
+            time TEXT NOT NULL,
+            date TEXT NOT NULL,            
 	    name TEXT UNIQUE NOT NULL,
 	    address TEXT NOT NULL,
 	    port INTEGER NOT NULL,
-	    protocol TEXT NOT NULL,
-	    txt TEXT
-	)",
-        (),
-    )?;
+	    hostname TEXT NOT NULL
+)",
+        [],
+    ) {
+        Ok(_) => (),
+        Err(err) => eprintln!("TABLE creation error: {err}"),
+    };
 
     Ok(())
 }
@@ -33,8 +39,7 @@ pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> 
 ///  - There is no result from the database
 /// # Errors
 ///  - None
-pub fn get_count(db_name: &str, db_path: &str) -> Result<u8, rusqlite::Error> {
-    let conn = rusqlite::Connection::open(format!("{db_path}/{db_name}"))?;
+pub fn get_count(conn: &mut Connection) -> Result<u8, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT COUNT(*) FROM services")?;
     let count = stmt.query_map([], |row| {
         let count: u8 = row.get_unwrap::<usize, u8>(0);
@@ -53,23 +58,24 @@ pub fn get_count(db_name: &str, db_path: &str) -> Result<u8, rusqlite::Error> {
 ///   - ``SqliteDB`` returns no information stored
 /// # Errors
 ///   - None
-pub fn get_all_items(db_name: &str, db_path: &str) -> Result<Vec<Service>, rusqlite::Error> {
-    let conn = rusqlite::Connection::open(format!("{db_path}/{db_name}"))?;
+pub fn get_all_items(conn: &mut Connection) -> Result<Vec<Service>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT * FROM services")?;
     let rows = stmt.query_map([], |row| {
         let _id: u32 = row.get_unwrap(0);
-        let name: String = row.get_unwrap(1);
-        let address: String = row.get_unwrap(2);
-        let port: u16 = row.get_unwrap(3);
-        let protocol: String = row.get_unwrap(4);
-        let txt: String = row.get_unwrap(5);
+        let time: String = row.get_unwrap(1);
+        let date: String = row.get_unwrap(2);
+        let name: String = row.get_unwrap(3);
+        let address: String = row.get_unwrap(4);
+        let port: u16 = row.get_unwrap(5);
+        let hostname: String = row.get_unwrap(6);
 
         Ok(Service {
+            time,
+            date,
             name,
             address,
             port,
-            protocol,
-            txt: serde_json::from_str(&txt).ok(),
+            hostname,
         })
     });
 
