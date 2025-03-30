@@ -26,9 +26,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     //let context = browser.set_context(Arc::new());
     browser.set_service_discovered_callback(Box::new(
         move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
-            println!("\tDiscovered: {}", result.clone().unwrap().name());
+            println!(
+                "\tDiscovered: {}",
+                result.clone().expect("No results").name()
+            );
 
-            captured_svc.lock().unwrap().push(result.unwrap().into());
+            captured_svc.lock()?.push(result.unwrap().into());
 
             let conn = rusqlite::Connection::open("mDns.db").unwrap();
 

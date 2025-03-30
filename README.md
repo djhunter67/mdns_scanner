@@ -4,7 +4,7 @@ This small project is a learning adventure in mDNS.  I scanned the network port 
 
 ## Build -- Linux, Arch
 - The two dependencies of this project are `extra/avahi` and `core/sqlite`. 
-  - [[mDNS Arch Wiki](https://wiki.archlinux.org/title/Avahi)]
+  - [mDNS Arch Wiki](https://wiki.archlinux.org/title/Avahi)
   - `yay -S avahi --noconfirm`
   - `sudo systemctl start avahi-daemon.service`
   - `yay -S sqlite --noconfirm`
