@@ -8,7 +8,7 @@ use strum::{EnumIter, IntoEnumIterator};
 use zeroconf::{
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
-    MdnsBrowser, ServiceDiscovery, ServiceType,
+    MdnsBrowser, NetworkInterface, ServiceDiscovery, ServiceType,
 };
 
 const DB_PATH: &str = "./";
@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for browse in &mut browser {
         println!("Initiating {scan_time} second scan");
-        // browse.set_network_interface(NetworkInterface::AtIndex(3));
+        browse.set_network_interface(NetworkInterface::AtIndex(3));
         browse.set_service_discovered_callback(Box::new(
             move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
                 println!(
