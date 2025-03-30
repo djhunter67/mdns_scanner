@@ -8,7 +8,7 @@ use strum::{EnumIter, IntoEnumIterator};
 use zeroconf::{
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
-    MdnsBrowser, NetworkInterface, ServiceDiscovery, ServiceType,
+    MdnsBrowser, ServiceDiscovery, ServiceType,
 };
 
 const DB_PATH: &str = "./";
@@ -16,21 +16,21 @@ const DB_NAME: &str = "mDns.db";
 
 #[derive(EnumIter)]
 enum ServiceDetect {
-    Http = 0,
-    Scanner = 1,
-    AndroidTvRemote2 = 2,
-    Uscans = 3,
-    PdlDataStream = 4,
-    Printer = 5,
-    NvShieldRemote = 6,
-    HttpAlt = 7,
-    SftpSsh = 8,
-    Ssh = 9,
-    GoogleZone = 10,
-    GoogleCast = 11,
-    CompanionLink = 12,
-    SpotifyConnect = 13,
-    AirPlay = 14,
+    Http,
+    Scanner,
+    AndroidTvRemote2,
+    Uscans,
+    PdlDataStream,
+    Printer,
+    NvShieldRemote,
+    HttpAlt,
+    SftpSsh,
+    Ssh,
+    GoogleZone,
+    GoogleCast,
+    CompanionLink,
+    SpotifyConnect,
+    AirPlay,
 }
 
 impl ServiceDetect {
@@ -53,32 +53,6 @@ impl ServiceDetect {
             Self::AirPlay,
         ]
         .len()
-    }
-}
-
-impl IntoIterator for ServiceDetect {
-    type Item = Self;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        vec![
-            Self::Http,
-            Self::Scanner,
-            Self::AndroidTvRemote2,
-            Self::Uscans,
-            Self::PdlDataStream,
-            Self::Printer,
-            Self::NvShieldRemote,
-            Self::HttpAlt,
-            Self::SftpSsh,
-            Self::Ssh,
-            Self::GoogleZone,
-            Self::GoogleCast,
-            Self::CompanionLink,
-            Self::SpotifyConnect,
-            Self::AirPlay,
-        ]
-        .into_iter()
     }
 }
 
@@ -117,14 +91,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Unable to convert to array");
 
     let scan_time: u8 = 1;
-    // let root = env!("CARGO_MANIFEST_DIR");
-    let root = "./";
-    init_sqlite("mDns.db", root)?;
+    init_sqlite(DB_NAME, DB_PATH)?;
 
     for browse in &mut browser {
         // let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
         println!("Initiating {scan_time} second scan");
-        browse.set_network_interface(NetworkInterface::AtIndex(3));
+        // browse.set_network_interface(NetworkInterface::AtIndex(3));
         browse.set_service_discovered_callback(Box::new(
             move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
                 println!(
@@ -132,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     result.clone().expect("No results").name()
                 );
 
-                let conn = rusqlite::Connection::open("mDns.db").expect("DB does not exist");
+                let conn = rusqlite::Connection::open(DB_NAME).expect("DB does not exist");
 
                 conn.execute(
 		    "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -173,7 +145,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let all_items = get_all_items(&mut conn);
     for item in &all_items? {
         println!("\nName: {}", item.name());
-        println!("IP: {}", item.address);
+        println!("IP: {}", item.address());
+        println!("Hostname: {}", item.hostname());
     }
 
     Ok(())
