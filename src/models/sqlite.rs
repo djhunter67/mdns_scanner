@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use limbo::{Connection, params::IntoValue};
 
 use crate::Service;
 
@@ -6,18 +6,56 @@ use crate::Service;
 ///   - Attempt to create a file that already exists
 /// # Errors
 ///   - Unable to create the db file
-pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> {
-    let conn = match rusqlite::Connection::open(format!("{db_path}/{db_name}")) {
+pub async fn init_sqlite(db_name: &str, db_path: &str) -> Result<Connection, limbo::Error> {
+    if db_name.eq(":memory:") {
+        let db = match limbo::Builder::new_local(":memory:").build().await {
+            Ok(conn) => conn,
+            Err(err) => {
+                eprintln!("Unable to open the DB: {err}");
+                return Err(limbo::Error::ToSqlConversionFailure(db_path.into()));
+            }
+        };
+
+        let conn = db.connect()?;
+        match conn
+            .execute(
+                "CREATE TABLE IF NOT EXISTS services (
+        id INTEGER PRIMARY KEY,
+            time TEXT NOT NULL,
+            date TEXT NOT NULL,            
+        name TEXT UNIQUE NOT NULL,
+        address TEXT NOT NULL,
+        port INTEGER NOT NULL,
+        hostname TEXT NOT NULL
+    )",
+                (),
+            )
+            .await
+        {
+            Ok(_) => (),
+            Err(err) => eprintln!("TABLE creation error: {err}"),
+        };
+
+        return Ok(conn);
+    }
+
+    let db = match limbo::Builder::new_local(&format!("{db_path}/{db_name}"))
+        .build()
+        .await
+    {
         Ok(conn) => conn,
         Err(err) => {
             eprintln!("Unable to open the DB: {err}");
             std::fs::File::create_new(format!("{db_path}/{db_name}"))
                 .unwrap_or_else(|err| panic!("DB file already exists: {err}"));
-            return Err(rusqlite::Error::InvalidPath(db_path.into()));
+            return Err(limbo::Error::ToSqlConversionFailure(db_path.into()));
         }
     };
-    match conn.execute(
-        "CREATE TABLE IF NOT EXISTS services (
+
+    let conn = db.connect()?;
+    match conn
+        .execute(
+            "CREATE TABLE IF NOT EXISTS services (
 	    id INTEGER PRIMARY KEY,
             time TEXT NOT NULL,
             date TEXT NOT NULL,            
@@ -26,63 +64,88 @@ pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> 
 	    port INTEGER NOT NULL,
 	    hostname TEXT NOT NULL
 )",
-        [],
-    ) {
+            (),
+        )
+        .await
+    {
         Ok(_) => (),
         Err(err) => eprintln!("TABLE creation error: {err}"),
     };
 
-    Ok(())
+    Ok(conn)
 }
 
 /// # Panics
 ///  - There is no result from the database
 /// # Errors
 ///  - None
-pub fn get_count(conn: &mut Connection) -> Result<u8, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT COUNT(*) FROM services")?;
-    let count = stmt.query_map([], |row| {
-        let count: u8 = row.get_unwrap::<usize, u8>(0);
-        Ok(count)
-    })?;
+pub async fn get_count(conn: &mut Connection) -> Result<u8, limbo::Error> {
+    let mut stmt = conn.prepare("SELECT COUNT(*) FROM services").await?;
+    let mut count = stmt.query(()).await?;
 
-    Ok(*count
-        .collect::<Vec<_>>()
-        .first()
-        .expect("No values to get")
-        .as_ref()
-        .expect("Can't reference a non-existent value"))
+    let rows = count.next().await.expect("No rows returned");
+
+    // |row| {let count: u8 = row.get_unwrap::<usize, u8>(0);
+    // Ok(count)
+    // }
+
+    Ok(rows.map_or(0, |row| {
+        let count: u8 = u8::try_from(
+            *row.get_value(0)
+                .expect("No value returned")
+                .as_integer()
+                .expect("No integer returned"),
+        )
+        .expect("Truncated the u64 to a u8");
+        count
+    }))
+
+    // Ok(match rows {
+    //     Some(row) => *row
+    //         .get_value(0)
+    //         .expect("No value returned")
+    //         .as_integer()
+    //         .expect("No integer returned") as u8,
+    //     None => 0,
+    // })
 }
 
 /// # Panics
 ///   - ``SqliteDB`` returns no information stored
 /// # Errors
 ///   - None
-pub fn get_all_items(conn: &mut Connection) -> Result<Vec<Service>, rusqlite::Error> {
-    let mut stmt = conn.prepare("SELECT * FROM services")?;
-    let rows = stmt.query_map([], |row| {
-        let _id: u32 = row.get_unwrap(0);
-        let time: String = row.get_unwrap(1);
-        let date: String = row.get_unwrap(2);
-        let name: String = row.get_unwrap(3);
-        let address: String = row.get_unwrap(4);
-        let port: u16 = row.get_unwrap(5);
-        let hostname: String = row.get_unwrap(6);
+pub async fn get_all_items(conn: &mut Connection) -> Result<Vec<Service>, limbo::Error> {
+    let mut stmt = conn.prepare("SELECT * FROM services").await?;
+    let rows: Service = match stmt.query(()).await?.next().await.expect("query error") {
+        Some(row) => row,
+        None => {
+            return Ok(vec![]);
+        }
+    }
+    .get_value(0)
+    .expect("No value returned")
+    .into_value()
+    .map(|row| {
+        let _id: u32 = u32::try_from(*row.as_integer().expect("No text returned"))
+            .expect("Truncated the u64 to a u32");
+        let time: String = row.as_text().expect("No text returned").to_string();
+        let date: String = row.as_text().expect("No text returned").to_string();
+        let name: String = row.as_text().expect("No text returned").to_string();
+        let address: String = row.as_text().expect("No text returned").to_string();
+        let port: u16 = u16::try_from(*row.as_integer().expect("No integer returned"))
+            .expect("Truncated the u64 to a u16");
+        let hostname: String = row.as_text().expect("No text returned").to_string();
 
-        Ok(Service {
+        Service {
             time,
             date,
             name,
             address,
             port,
             hostname,
-        })
-    });
+        }
+    })
+    .expect("No value returned");
 
-    let mut services: Vec<Service> = Vec::new();
-    rows?.by_ref().for_each(|row| {
-        services.push(row.expect("Unable to use the returned row"));
-    });
-
-    Ok(services)
+    Ok(vec![rows])
 }

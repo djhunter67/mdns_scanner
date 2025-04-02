@@ -1,18 +1,21 @@
 pub mod models;
 
-use std::{any::Any, sync::Arc};
+use std::{
+    any::Any,
+    sync::{Arc, Mutex},
+};
 
 use models::sqlite::{get_all_items, get_count, init_sqlite};
 use serde::Serialize;
 use strum::{EnumIter, IntoEnumIterator};
 use zeroconf::{
+    MdnsBrowser, ServiceDiscovery, ServiceType,
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
-    MdnsBrowser, ServiceDiscovery, ServiceType,
 };
 
 const DB_PATH: &str = "./";
-const DB_NAME: &str = "mDns.db";
+const DB_NAME: &str = ":memory:";
 
 #[derive(EnumIter)]
 enum ServiceDetect {
@@ -78,8 +81,17 @@ impl From<ServiceDetect> for &str {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
+#[derive(Debug)]
+struct ServiceMembers {
+    service: Vec<Service>,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
+    let servicer = ServiceMembers {
+        service: Vec::new(),
+    };
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
             MdnsBrowser::new(
@@ -91,36 +103,61 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Unable to convert to array");
 
     let scan_time: u8 = 1;
-    init_sqlite(DB_NAME, DB_PATH)?;
+    let mut conn = init_sqlite(DB_NAME, DB_PATH).await?;
 
+    // let db = limbo::Builder::new_local(DB_NAME)
+    //     .build()
+    //     .await
+    //     .expect("Unable to connect to database");
+
+    // let mut conn = db.connect().expect("Unable to connect to database");
     for browse in &mut browser {
         // let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
         println!("Initiating {scan_time} second scan");
         // browse.set_network_interface(NetworkInterface::AtIndex(3));
         browse.set_service_discovered_callback(Box::new(
-            move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
-                println!(
-                    "\tDiscovered: {}",
-                    result.clone().expect("No results").name()
-                );
+            move |result: zeroconf::Result<ServiceDiscovery>, context: Option<Arc<dyn Any>>| {
+                println!("\tDiscovered: {}", result.expect("No results").name());
 
-                let conn = rusqlite::Connection::open(DB_NAME).expect("DB does not exist");
-
-                conn.execute(
-		    "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-		    [
-			chrono::Local::now().time().to_string(),
-			chrono::Local::now().date_naive().to_string(),
-			result.clone().expect("Does not exist").name().to_string(),
-			result.clone().expect("Does not exist").address().to_string(),
-		        result.clone().expect("Does not exist").port().to_string(),
-		        result.expect("Does not exist").host_name().to_string(),
-		    ],
-	        )
-		    .unwrap_or_default();
+                // context
+                //     .as_ref()
+                //     .expect("No context")
+                //     .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
+                //     .expect("Unable to downcast")
+                //     .lock()
+                //     .expect("Unable to lock")
+                //     .service
+                //     .push(
+                //         Service::try_from(result.expect("Does not exist"))
+                //             .expect("Unable to convert"),
+                //     );
             },
         ));
 
+        for svc in &servicer.service {
+            // conn.prepare("INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").await.expect("SQL syntax error");
+            conn.execute(
+                "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                &[
+                    chrono::Local::now().time().to_string(),
+                    chrono::Local::now().date_naive().to_string(),
+                    // result.clone().expect("Does not exist").name(),
+                    // result
+                    //     .clone()
+                    //     .expect("Does not exist")
+                    //     .address()
+                    //     ,
+                    // result.clone().expect("Does not exist").port(),
+                    // result.expect("Does not exist").host_name(),
+                    svc.name().to_string(),
+                    svc.address().to_string(),
+                    svc.port().to_string(),
+                    svc.hostname().to_string(),
+                ],
+            )
+            .await
+            .unwrap_or_default();
+        }
         let event_loop = match browse.browse_services() {
             Ok(object) => object,
             Err(err) => panic!("unable to browse services: {err}"),
@@ -134,16 +171,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(err) => panic!("Unable to poll: {err}"),
             };
 
-            if start_time.elapsed().as_secs() > scan_time.into() {
+            if start_time.elapsed().as_secs() >= scan_time.into() {
                 break;
             }
         }
     }
 
-    println!("\nDiscovered {} mDns devices", get_count(&mut conn)?);
+    println!("\nRecalled {} mDns devices", get_count(&mut conn).await?);
 
     let all_items = get_all_items(&mut conn);
-    for item in &all_items? {
+    for item in &all_items.await? {
         println!("\nName: {}", item.name());
         println!("IP: {}", item.address());
         println!("Hostname: {}", item.hostname());
@@ -151,6 +188,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+// fn on_service_registered(
+//     result: zeroconf::Result<ServiceRegistration>,
+//     context: Option<Arc<dyn Any>>,
+// ) {
+//     println!("\tDiscovered: {}", result.expect("No results").name());
+
+//     context
+//         .as_ref()
+//         .expect("No context")
+//         .downcast_ref::<ServiceMembers>()
+//         .expect("Unable to downcast")
+//         .service
+//         .push(Service {
+//             time: String::new(),
+//             date: String::new(),
+//             name: result.clone().expect("Does not exist").name().to_string(),
+//             address: result
+//                 .clone()
+//                 .expect("Does not exist")
+//                 .service_type()
+//                 .protocol()
+//                 .to_string(),
+//             port: result
+//                 .clone()
+//                 .expect("Does not exist")
+//                 .service_type()
+//                 .protocol()
+//                 .parse::<u16>()
+//                 .expect("Unable to parse"),
+//             hostname: result
+//                 .expect("Does not exist")
+//                 .service_type()
+//                 .name()
+//                 .to_string(),
+//         });
+// }
 
 #[derive(Default, Serialize, Debug)]
 pub struct Service {
