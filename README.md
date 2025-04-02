@@ -2,12 +2,18 @@
 
 This small project is a learning adventure in mDNS.  I scanned the network port on my home rig and was surprised at what was broadcasting mDNS packets on my network.
 
-## Build -- Linux, Arch
-- The two dependencies of this project are `extra/avahi` and `core/sqlite`. 
+## Build -- Linux, 
+- The two dependencies of this project are `avahi` and `sqlite`. 
+### Arch
   - [mDNS Arch Wiki](https://wiki.archlinux.org/title/Avahi)
   - `yay -S avahi --noconfirm`
   - `sudo systemctl start avahi-daemon.service`
   - `yay -S sqlite --noconfirm`
+  
+### Ubuntu 22.X.X
+  - `sudo snap install avahi`
+    -`sudo systemctl status avahi-daemon.service` to ensure the service is activated
+  - `sudo apt install sqlite3`
   
 - Next, you should be able to run the default program:
   - `cargo run`
