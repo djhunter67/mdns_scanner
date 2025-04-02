@@ -15,7 +15,7 @@ use zeroconf::{
 };
 
 const DB_PATH: &str = "./";
-const DB_NAME: &str = ":memory:";
+const DB_NAME: &str = "mDns.db";
 
 #[derive(EnumIter)]
 enum ServiceDetect {
@@ -117,47 +117,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // browse.set_network_interface(NetworkInterface::AtIndex(3));
         browse.set_service_discovered_callback(Box::new(
             move |result: zeroconf::Result<ServiceDiscovery>, context: Option<Arc<dyn Any>>| {
-                println!("\tDiscovered: {}", result.expect("No results").name());
+                println!(
+                    "\tDiscovered: {}",
+                    result.clone().expect("No results").name()
+                );
 
-                // context
-                //     .as_ref()
-                //     .expect("No context")
-                //     .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
-                //     .expect("Unable to downcast")
-                //     .lock()
-                //     .expect("Unable to lock")
-                //     .service
-                //     .push(
-                //         Service::try_from(result.expect("Does not exist"))
-                //             .expect("Unable to convert"),
-                //     );
+                // let context = match context.as_ref() {
+                //     Some(object) => object,
+                //     None => {
+                //         eprintln!("No context found");
+                //         return;
+                //     }
+                // }
+                // .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
+                // .expect("Unable to downcast")
+                // .clone();
+
+                match context.as_ref() {
+                    Some(object) => {
+                        object
+                            .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
+                            .expect("Unable to downcast")
+                            .lock()
+                            .expect("Lock is poisoned")
+                            .service
+                            .push(
+                                Service::try_from(result.expect("Does not exist"))
+                                    .expect("Unable to convert"),
+                            );
+                        println!(
+                            "Service count is: {}",
+                            object
+                                .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
+                                .expect("Unable to downcast")
+                                .lock()
+                                .expect("Lock is poisoned")
+                                .service
+                                .len()
+                        );
+                    }
+                    None => {
+                        println!("continuing...");
+                    }
+                };
             },
         ));
 
-        for svc in &servicer.service {
-            // conn.prepare("INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)").await.expect("SQL syntax error");
-            conn.execute(
-                "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                &[
-                    chrono::Local::now().time().to_string(),
-                    chrono::Local::now().date_naive().to_string(),
-                    // result.clone().expect("Does not exist").name(),
-                    // result
-                    //     .clone()
-                    //     .expect("Does not exist")
-                    //     .address()
-                    //     ,
-                    // result.clone().expect("Does not exist").port(),
-                    // result.expect("Does not exist").host_name(),
-                    svc.name().to_string(),
-                    svc.address().to_string(),
-                    svc.port().to_string(),
-                    svc.hostname().to_string(),
-                ],
-            )
-            .await
-            .unwrap_or_default();
-        }
         let event_loop = match browse.browse_services() {
             Ok(object) => object,
             Err(err) => panic!("unable to browse services: {err}"),
@@ -177,6 +182,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    println!("Service count is: {}", servicer.service.len());
+
+    for svc in &servicer.service {
+        conn.execute(
+                "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                &[
+                    chrono::Local::now().time().to_string(),
+                    chrono::Local::now().date_naive().to_string(),
+                    svc.name().to_string(),
+                    svc.address().to_string(),
+                    svc.port().to_string(),
+                    svc.hostname().to_string(),
+                ],
+            )
+            .await
+            .unwrap_or_default();
+    }
+
     println!("\nRecalled {} mDns devices", get_count(&mut conn).await?);
 
     let all_items = get_all_items(&mut conn);
@@ -188,43 +211,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-
-// fn on_service_registered(
-//     result: zeroconf::Result<ServiceRegistration>,
-//     context: Option<Arc<dyn Any>>,
-// ) {
-//     println!("\tDiscovered: {}", result.expect("No results").name());
-
-//     context
-//         .as_ref()
-//         .expect("No context")
-//         .downcast_ref::<ServiceMembers>()
-//         .expect("Unable to downcast")
-//         .service
-//         .push(Service {
-//             time: String::new(),
-//             date: String::new(),
-//             name: result.clone().expect("Does not exist").name().to_string(),
-//             address: result
-//                 .clone()
-//                 .expect("Does not exist")
-//                 .service_type()
-//                 .protocol()
-//                 .to_string(),
-//             port: result
-//                 .clone()
-//                 .expect("Does not exist")
-//                 .service_type()
-//                 .protocol()
-//                 .parse::<u16>()
-//                 .expect("Unable to parse"),
-//             hostname: result
-//                 .expect("Does not exist")
-//                 .service_type()
-//                 .name()
-//                 .to_string(),
-//         });
-// }
 
 #[derive(Default, Serialize, Debug)]
 pub struct Service {
