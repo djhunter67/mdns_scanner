@@ -1,18 +1,12 @@
 pub mod models;
 
-use std::{
-    any::Any,
-    fmt::Display,
-    sync::{Arc, Mutex},
-};
+use std::{fmt::Display, time::Duration};
 
 use models::sqlite::{get_all_items, get_count, init_sqlite};
 use serde::Serialize;
 use strum::{EnumIter, IntoEnumIterator};
-use zeroconf::{
-    MdnsBrowser, ServiceDiscovery, ServiceType,
-    avahi::browser::AvahiMdnsBrowser,
-    prelude::{TEventLoop, TMdnsBrowser},
+use zeroconf_tokio::{
+    MdnsBrowser, MdnsBrowserAsync, ServiceDiscovery, ServiceType, prelude::TMdnsBrowser,
 };
 
 const DB_PATH: &str = "./";
@@ -104,111 +98,101 @@ impl From<ServiceDetect> for &str {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct ServiceMembers {
     service: Vec<Service>,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
-    let servicer = ServiceMembers {
+    let mut servicer = ServiceMembers {
         service: Vec::new(),
     };
-    let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
+    let browser: [MdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
             MdnsBrowser::new(
                 ServiceType::new(val.into(), "tcp").expect("Unable to create service type"),
             )
         })
-        .collect::<Vec<AvahiMdnsBrowser>>()
+        .collect::<Vec<MdnsBrowser>>()
         .try_into()
         .expect("Unable to convert to array");
 
     let scan_time: u8 = 1;
     let mut conn = init_sqlite(DB_NAME, DB_PATH).await?;
 
-    // let db = limbo::Builder::new_local(DB_NAME)
-    //     .build()
-    //     .await
-    //     .expect("Unable to connect to database");
-
-    // let mut conn = db.connect().expect("Unable to connect to database");
-    for (i, browse) in browser.iter_mut().enumerate() {
-        // let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
+    for (i, mut browse) in browser.into_iter().enumerate() {
         println!(
-            "Initiating {scan_time} second scan for {}",
+            "Initiating scan for {}",
             ServiceDetect::iter().get(i).expect("No Service")
         );
-        // browse.set_network_interface(NetworkInterface::AtIndex(3));
-        browse.set_service_discovered_callback(Box::new(
-            move |result: zeroconf::Result<ServiceDiscovery>, context: Option<Arc<dyn Any>>| {
-                println!(
-                    "\tDiscovered: {}",
-                    result.clone().expect("No results").name()
-                );
 
-                // let context = match context.as_ref() {
-                //     Some(object) => object,
-                //     None => {
-                //         eprintln!("No context found");
-                //         return;
-                //     }
-                // }
-                // .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
-                // .expect("Unable to downcast")
-                // .clone();
+        browse.set_network_interface(zeroconf_tokio::NetworkInterface::AtIndex(3));
 
-                match context.as_ref() {
-                    Some(object) => {
-                        object
-                            .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
-                            .expect("Unable to downcast")
-                            .lock()
-                            .expect("Lock is poisoned")
-                            .service
-                            .push(
-                                Service::try_from(result.expect("Does not exist"))
-                                    .expect("Unable to convert"),
-                            );
-                        println!(
-                            "Service count is: {}",
-                            object
-                                .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
-                                .expect("Unable to downcast")
-                                .lock()
-                                .expect("Lock is poisoned")
-                                .service
-                                .len()
-                        );
-                    }
-                    None => {
-                        println!("continuing...");
-                    }
-                };
-            },
-        ));
+        let mut service = MdnsBrowserAsync::new(browse)?;
 
-        let event_loop = match browse.browse_services() {
-            Ok(object) => object,
-            Err(err) => panic!("unable to browse services: {err}"),
-        };
+        service
+            .start_with_timeout(Duration::from_secs(scan_time.into()))
+            .await?;
 
         let start_time = std::time::Instant::now();
-
-        loop {
-            match event_loop.poll(std::time::Duration::from_millis(2)) {
-                Ok(()) => (),
-                Err(err) => panic!("Unable to poll: {err}"),
-            };
+        while let Some(Ok(discovery)) = service.next().await {
+            servicer
+                .service
+                .push(Service::try_from(discovery).expect("Unable to convert"));
 
             if start_time.elapsed().as_secs() >= scan_time.into() {
                 break;
             }
         }
+        println!("Next items");
+        service.shutdown().await?;
+
+        // browse.set_network_interface(NetworkInterface::AtIndex(3));
+        // browse.set_service_discovered_callback(Box::new(
+        //     move |result: zeroconf_tokio::Result<ServiceDiscovery>,
+        //           _context: Option<Arc<dyn Any>>| {
+        //         println!("\tDiscovered: {}", result.expect("No results").name());
+
+        //         // context.as_ref().map(|object| {
+        //         //     println!("\t\tThe object should be empty");
+        //         //     object
+        //         //         .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
+        //         //         .expect("Unable to downcast")
+        //         //         .lock()
+        //         //         .expect("Lock is poisoned")
+        //         //         .service
+        //         //         .push(
+
+        //         // value.service.push(
+        //         // Service::try_from(result.expect("Does not exist")).expect("Unable to convert"),
+        //         // );
+        //         // Some(0)
+        //         // });
+        //     },
+        // ));
+
+        // let event_loop = match browse.browse_services() {
+        //     Ok(object) => object,
+        //     Err(err) => panic!("unable to browse services: {err}"),
+        // };
+
+        // loop {
+        //     match event_loop.poll(std::time::Duration::from_millis(2)) {
+        //         Ok(()) => (),
+        //         Err(err) => panic!("Unable to poll: {err}"),
+        //     };
+
+        //     if start_time.elapsed().as_secs() >= scan_time.into() {
+        //         break;
+        //     }
+        // }
     }
 
-    println!("Service count is: {}", servicer.service.len());
+    // println!(
+    // "Service count is: {}",
+    // servicer.clone().lock().unwrap().service.len()
+    // );
 
     for svc in &servicer.service {
         conn.execute(
