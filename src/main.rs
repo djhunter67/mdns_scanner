@@ -118,96 +118,93 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_into()
         .expect("Unable to convert to array");
 
-    let scan_time: u8 = 1;
-    let mut conn = init_sqlite(DB_NAME, DB_PATH).await?;
+    let scan_time: u8 = 0;
+    let mut conn = match init_sqlite(DB_NAME, DB_PATH).await {
+        Ok(object) => object,
+        Err(err) => {
+            eprintln!("Unable to create connection: {err}");
+            return Ok(());
+        }
+    };
 
-    for (i, mut browse) in browser.into_iter().enumerate() {
+    for (i, browse) in browser.into_iter().enumerate() {
         println!(
             "Initiating scan for {}",
-            ServiceDetect::iter().get(i).expect("No Service")
+            ServiceDetect::iter()
+                .get(i)
+                .map_or_else(String::new, |val| val.to_string())
         );
 
-        browse.set_network_interface(zeroconf_tokio::NetworkInterface::AtIndex(3));
-
-        let mut service = MdnsBrowserAsync::new(browse)?;
-
-        service
-            .start_with_timeout(Duration::from_secs(scan_time.into()))
-            .await?;
-
-        let start_time = std::time::Instant::now();
-        while let Some(Ok(discovery)) = service.next().await {
-            servicer
-                .service
-                .push(Service::try_from(discovery).expect("Unable to convert"));
-
-            if start_time.elapsed().as_secs() >= scan_time.into() {
+        let mut browse = match MdnsBrowserAsync::new(browse) {
+            Ok(object) => {
+                println!("Created browser");
+                object
+            }
+            Err(err) => {
+                eprintln!("Unable to create browser: {err}");
                 break;
             }
-        }
-        println!("Next items");
-        service.shutdown().await?;
+        };
+
+        let start_time = std::time::Instant::now();
 
         // browse.set_network_interface(NetworkInterface::AtIndex(3));
-        // browse.set_service_discovered_callback(Box::new(
-        //     move |result: zeroconf_tokio::Result<ServiceDiscovery>,
-        //           _context: Option<Arc<dyn Any>>| {
-        //         println!("\tDiscovered: {}", result.expect("No results").name());
-
-        //         // context.as_ref().map(|object| {
-        //         //     println!("\t\tThe object should be empty");
-        //         //     object
-        //         //         .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
-        //         //         .expect("Unable to downcast")
-        //         //         .lock()
-        //         //         .expect("Lock is poisoned")
-        //         //         .service
-        //         //         .push(
-
-        //         // value.service.push(
-        //         // Service::try_from(result.expect("Does not exist")).expect("Unable to convert"),
-        //         // );
-        //         // Some(0)
-        //         // });
-        //     },
-        // ));
-
-        // let event_loop = match browse.browse_services() {
-        //     Ok(object) => object,
-        //     Err(err) => panic!("unable to browse services: {err}"),
-        // };
-
-        // loop {
-        //     match event_loop.poll(std::time::Duration::from_millis(2)) {
-        //         Ok(()) => (),
-        //         Err(err) => panic!("Unable to poll: {err}"),
-        //     };
-
-        //     if start_time.elapsed().as_secs() >= scan_time.into() {
-        //         break;
-        //     }
-        // }
-    }
-
-    // println!(
-    // "Service count is: {}",
-    // servicer.clone().lock().unwrap().service.len()
-    // );
-
-    for svc in &servicer.service {
-        conn.execute(
-                "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                &[
-                    chrono::Local::now().time().to_string(),
-                    chrono::Local::now().date_naive().to_string(),
-                    svc.name().to_string(),
-                    svc.address().to_string(),
-                    svc.port().to_string(),
-                    svc.hostname().to_string(),
-                ],
-            )
+        match browse
+            .start_with_timeout(Duration::from_secs(scan_time.into()))
             .await
-            .unwrap_or_default();
+        {
+            Ok(()) => (),
+            Err(err) => {
+                eprintln!("Unable to start: {err}");
+                break;
+            }
+        };
+
+        println!("Starting service loop\n\n");
+
+        'service_loop: loop {
+            // println!("Waiting for discovery");
+            let discovery = match browse.next().await {
+                Some(result) => {
+                    // println!("Received discovery: {}", result.clone()?.name());
+                    result
+                }
+                None => {
+                    eprintln!("NO DISCOVERY");
+                    break 'service_loop;
+                }
+            };
+
+            servicer.service.push(
+                match Service::try_from(match discovery {
+                    Ok(val) => {
+                        // println!("Received discovery");
+                        val
+                    }
+                    Err(err) => {
+                        eprintln!("Error: {err}");
+                        break 'service_loop;
+                    }
+                }) {
+                    Ok(val) => {
+                        // println!("Received discovery");
+                        val
+                    }
+                    Err(err) => {
+                        eprintln!("Error: {err:#?}");
+                        break 'service_loop;
+                    }
+                },
+            );
+
+            save_svc(servicer.service.last().expect("Empty result"), conn.clone()).await?;
+
+            if start_time.elapsed().as_secs() > scan_time.into() {
+                // browse.shutdown().await?;
+                break 'service_loop;
+            }
+        }
+        browse.shutdown().await.expect("Shutdown failed");
     }
 
     println!("\nRecalled {} mDns devices", get_count(&mut conn).await?);
@@ -218,6 +215,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("IP: {}", item.address());
         println!("Hostname: {}", item.hostname());
     }
+
+    Ok(())
+}
+
+async fn save_svc(service: &Service, conn: limbo::Connection) -> Result<(), limbo::Error> {
+    // for svc in &servicer.service {
+    let svc = service;
+    match conn.execute(
+                "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                &[
+                    chrono::Local::now().time().to_string(),
+                    chrono::Local::now().date_naive().to_string(),
+                    svc.name().to_string(),
+                    svc.address().to_string(),
+                    svc.port().to_string(),
+                    svc.hostname().to_string(),
+                ],
+            )
+            .await {
+                Ok(result) => {
+                    if  result == 0 {
+                        println!("Successfully saved service: {}", svc.name());
+                } else {
+                    println!("No rows affected");
+                }},
+                Err(err) => {
+                    eprintln!("Error saving service: {err}");
+                    return Err(err);
+                }
+            }
+    // }
 
     Ok(())
 }
