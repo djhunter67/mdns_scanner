@@ -1,6 +1,6 @@
 pub mod models;
 
-use std::{any::Any, sync::Arc};
+use std::{any::Any, fmt::Display, sync::Arc};
 
 use models::sqlite::{get_all_items, get_count, init_sqlite};
 use serde::Serialize;
@@ -56,6 +56,28 @@ impl ServiceDetect {
     }
 }
 
+impl Display for ServiceDetect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Http => write!(f, "http"),
+            Self::Scanner => write!(f, "scanner"),
+            Self::AndroidTvRemote2 => write!(f, "androidtvremote2"),
+            Self::Uscans => write!(f, "uscans"),
+            Self::PdlDataStream => write!(f, "pdldatastream"),
+            Self::Printer => write!(f, "printer"),
+            Self::NvShieldRemote => write!(f, "nvshieldremote"),
+            Self::HttpAlt => write!(f, "http-alt"),
+            Self::SftpSsh => write!(f, "sftp-ssh"),
+            Self::Ssh => write!(f, "ssh"),
+            Self::GoogleZone => write!(f, "googlezone"),
+            Self::GoogleCast => write!(f, "googlecast"),
+            Self::CompanionLink => write!(f, "companionlink"),
+            Self::SpotifyConnect => write!(f, "spotifyconnect"),
+            Self::AirPlay => write!(f, "airplay"),
+        }
+    }
+}
+
 impl From<ServiceDetect> for &str {
     fn from(val: ServiceDetect) -> Self {
         match val {
@@ -93,8 +115,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scan_time: u8 = 1;
     init_sqlite(DB_NAME, DB_PATH)?;
 
-    for browse in &mut browser {
-        println!("Initiating {scan_time} second scan");
+    for (i, browse) in browser.iter_mut().enumerate() {
+        println!(
+            "Initiating {scan_time} second scan for {}",
+            ServiceDetect::iter().get(i).expect("No service")
+        );
         browse.set_network_interface(NetworkInterface::AtIndex(3));
         browse.set_service_discovered_callback(Box::new(
             move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
