@@ -1,16 +1,17 @@
 pub mod models;
 
-use std::{fmt::Display, time::Duration};
+use std::fmt::Display;
 
 use models::sqlite::{get_all_items, get_count, init_sqlite};
 use serde::Serialize;
 use strum::{EnumIter, IntoEnumIterator};
 use zeroconf_tokio::{
-    MdnsBrowser, MdnsBrowserAsync, ServiceDiscovery, ServiceType, prelude::TMdnsBrowser,
+    prelude::TMdnsBrowser, MdnsBrowser, MdnsBrowserAsync, ServiceDiscovery, ServiceType,
 };
 
 const DB_PATH: &str = "./";
-const DB_NAME: &str = "mDns.db";
+// const DB_NAME: &str = "mDns.db";
+const DB_NAME: &str = ":memory:";
 
 #[derive(EnumIter)]
 enum ServiceDetect {
@@ -118,7 +119,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_into()
         .expect("Unable to convert to array");
 
-    let scan_time: u8 = 0;
+    // let scan_time: u8 = 1;
     let mut conn = match init_sqlite(DB_NAME, DB_PATH).await {
         Ok(object) => object,
         Err(err) => {
@@ -137,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut browse = match MdnsBrowserAsync::new(browse) {
             Ok(object) => {
-                println!("Created browser");
+                // println!("Created browser");
                 object
             }
             Err(err) => {
@@ -146,11 +147,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        let start_time = std::time::Instant::now();
+        // let start_time = std::time::Instant::now();
 
         // browse.set_network_interface(NetworkInterface::AtIndex(3));
+
+        // 'service_loop: loop {
         match browse
-            .start_with_timeout(Duration::from_secs(scan_time.into()))
+            // .start_with_timeout(tokio::time::Duration::from_secs(scan_time.into()))
+            .start()
             .await
         {
             Ok(()) => (),
@@ -160,51 +164,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        println!("Starting service loop\n\n");
+        // println!("Starting service loop\n\n");
 
-        'service_loop: loop {
-            // println!("Waiting for discovery");
-            let discovery = match browse.next().await {
-                Some(result) => {
-                    // println!("Received discovery: {}", result.clone()?.name());
-                    result
+        let discovery = match browse.next().await {
+            Some(result) => match result {
+                Ok(data) => data,
+                Err(err) => {
+                    eprintln!("Error: {err}");
+                    // break 'service_loop;
+                    continue;
                 }
-                None => {
-                    eprintln!("NO DISCOVERY");
-                    break 'service_loop;
-                }
-            };
-
-            servicer.service.push(
-                match Service::try_from(match discovery {
-                    Ok(val) => {
-                        // println!("Received discovery");
-                        val
-                    }
-                    Err(err) => {
-                        eprintln!("Error: {err}");
-                        break 'service_loop;
-                    }
-                }) {
-                    Ok(val) => {
-                        // println!("Received discovery");
-                        val
-                    }
-                    Err(err) => {
-                        eprintln!("Error: {err:#?}");
-                        break 'service_loop;
-                    }
-                },
-            );
-
-            save_svc(servicer.service.last().expect("Empty result"), conn.clone()).await?;
-
-            if start_time.elapsed().as_secs() > scan_time.into() {
-                // browse.shutdown().await?;
-                break 'service_loop;
+            },
+            None => {
+                eprintln!("NO DISCOVERY");
+                // break 'service_loop;
+                continue;
             }
-        }
+        };
+
+        servicer
+            .service
+            .push(Service::try_from(discovery).expect("Unable to convert"));
+
+        save_svc(servicer.service.last().expect("Empty result"), conn.clone()).await?;
+
         browse.shutdown().await.expect("Shutdown failed");
+
+        // if start_time.elapsed().as_secs() > scan_time.into() {
+        //     // browse.shutdown().await?;
+        // break 'service_loop;
+        // }
+        // }
     }
 
     println!("\nRecalled {} mDns devices", get_count(&mut conn).await?);
@@ -236,7 +226,7 @@ async fn save_svc(service: &Service, conn: limbo::Connection) -> Result<(), limb
             .await {
                 Ok(result) => {
                     if  result == 0 {
-                        println!("Successfully saved service: {}", svc.name());
+                        println!("\tSuccessfully saved service: {}\n", svc.name());
                 } else {
                     println!("No rows affected");
                 }},
