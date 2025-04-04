@@ -6,12 +6,11 @@ use std::{
 };
 
 use models::sqlite::{get_all_items, get_count, init_sqlite};
-use serde::Serialize;
 use strum::{EnumIter, IntoEnumIterator};
 use zeroconf::{
-    MdnsBrowser, ServiceDiscovery, ServiceType,
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
+    MdnsBrowser, ServiceDiscovery, ServiceType,
 };
 
 const DB_PATH: &str = "./";
@@ -83,15 +82,16 @@ impl From<ServiceDetect> for &str {
 
 #[derive(Debug)]
 struct ServiceMembers {
-    service: Vec<Service>,
+    service: &'static [Service; 12],
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
-    let servicer = ServiceMembers {
-        service: Vec::new(),
-    };
+    let auto_servicer = Arc::new(Mutex::new(ServiceMembers {
+        service: core::array::from_fn(|_| &[Arc::new(Service::default()); 12]),
+    }));
+
+    let servicer = Arc::clone(&auto_servicer);
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
             MdnsBrowser::new(
@@ -105,12 +105,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scan_time: u8 = 1;
     let mut conn = init_sqlite(DB_NAME, DB_PATH).await?;
 
-    // let db = limbo::Builder::new_local(DB_NAME)
-    //     .build()
-    //     .await
-    //     .expect("Unable to connect to database");
-
-    // let mut conn = db.connect().expect("Unable to connect to database");
     for browse in &mut browser {
         // let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
         println!("Initiating {scan_time} second scan");
@@ -119,32 +113,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             move |result: zeroconf::Result<ServiceDiscovery>, context: Option<Arc<dyn Any>>| {
                 println!(
                     "\tDiscovered: {}",
-                    result.clone().expect("No results").name()
+                    result.as_ref().expect("No results").name()
                 );
-
-                // let context = match context.as_ref() {
-                //     Some(object) => object,
-                //     None => {
-                //         eprintln!("No context found");
-                //         return;
-                //     }
-                // }
-                // .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
-                // .expect("Unable to downcast")
-                // .clone();
 
                 match context.as_ref() {
                     Some(object) => {
-                        object
-                            .downcast_ref::<Arc<Mutex<ServiceMembers>>>()
-                            .expect("Unable to downcast")
-                            .lock()
-                            .expect("Lock is poisoned")
-                            .service
-                            .push(
-                                Service::try_from(result.expect("Does not exist"))
-                                    .expect("Unable to convert"),
-                            );
+                        if let Some(object) = object.downcast_ref::<Arc<Mutex<ServiceMembers>>>() {
+                            object
+                                .as_ref()
+                                .lock()
+                                .expect("Lock is poisoned")
+                                .service
+                                .to_vec()
+                                .push(
+                                    Service::try_from(result.expect("Does not exist"))
+                                        .expect("Unable to convert"),
+                                );
+                        }
                         println!(
                             "Service count is: {}",
                             object
@@ -158,8 +143,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     None => {
                         println!("continuing...");
+                        // turn the array into a vector
+                        let mut servicer = Arc::clone(&servicer);
+                        // Arc::into_inner(servicer).expect("no data").service.push(
+                        //     Service::try_from(result.expect("Does not exist"))
+                        //         .expect("Unable to convert"),
+                        // );
+                        servicer
+                            .lock()
+                            .expect("Lock is poisoned")
+                            .service
+                            .to_vec()
+                            .push(
+                                Service::try_from(result.expect("Does not exist"))
+                                    .expect("Unable to convert"),
+                            );
+                        println!(
+                            "Service count is: {}",
+                            servicer.lock().expect("Lock is poisoned").service.len()
+                        );
                     }
                 };
+
+                // let mut context = context.lock().expect("Lock is poisoned");
+
+                // context.service.push(w
+                //     Service::try_from(result.expect("Does not exist")).expect("Unable to convert"),
+                // );
+                // println!("Service count is: {}", context.service.len());
             },
         ));
 
@@ -182,23 +193,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("Service count is: {}", servicer.service.len());
+    tokio::task::block_in_place(|| {
+        save_svc(&servicer.lock().expect("lock is poisoned"), conn.clone())
+    })
+    .await?;
 
-    for svc in &servicer.service {
-        conn.execute(
-                "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                &[
-                    chrono::Local::now().time().to_string(),
-                    chrono::Local::now().date_naive().to_string(),
-                    svc.name().to_string(),
-                    svc.address().to_string(),
-                    svc.port().to_string(),
-                    svc.hostname().to_string(),
-                ],
-            )
-            .await
-            .unwrap_or_default();
-    }
+    // println!("Service count is: {}", servicer.service.len());
 
     println!("\nRecalled {} mDns devices", get_count(&mut conn).await?);
 
@@ -212,7 +212,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[derive(Default, Serialize, Debug)]
+async fn save_svc(servicer: &ServiceMembers, conn: limbo::Connection) -> Result<(), limbo::Error> {
+    for svc in servicer.service {
+        // let svc = service;
+        match conn.execute(
+                "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                &[
+                    chrono::Local::now().time().to_string(),
+                    chrono::Local::now().date_naive().to_string(),
+                    svc.name().to_string(),
+                    svc.address().to_string(),
+                    svc.port().to_string(),
+                    svc.hostname().to_string(),
+                ],
+            )
+            .await {
+                Ok(result) => {
+                    if  result == 0 {
+                        println!("\tSuccessfully saved service: {}\n", svc.name());
+                } else {
+                    println!("No rows affected");
+                }},
+                Err(err) => {
+                    eprintln!("Error saving service: {err}");
+                    return Err(err);
+                }
+            }
+    }
+
+    Ok(())
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct Service {
     time: String,
     date: String,
