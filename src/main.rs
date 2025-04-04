@@ -2,12 +2,10 @@ pub mod models;
 
 use std::fmt::Display;
 
+use async_zeroconf::ServiceBrowserBuilder;
 use models::sqlite::{get_all_items, get_count, init_sqlite};
 use serde::Serialize;
 use strum::{EnumIter, IntoEnumIterator};
-use zeroconf_tokio::{
-    prelude::TMdnsBrowser, MdnsBrowser, MdnsBrowserAsync, ServiceDiscovery, ServiceType,
-};
 
 const DB_PATH: &str = "./";
 // const DB_NAME: &str = "mDns.db";
@@ -109,17 +107,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut servicer = ServiceMembers {
         service: Vec::new(),
     };
-    let browser: [MdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
-        .map(|val| {
-            MdnsBrowser::new(
-                ServiceType::new(val.into(), "tcp").expect("Unable to create service type"),
-            )
-        })
-        .collect::<Vec<MdnsBrowser>>()
+    let browser: [ServiceBrowserBuilder; ServiceDetect::length()] = ServiceDetect::iter()
+        .map(|val| ServiceBrowserBuilder::new(&format!("_{val}._tcp")))
+        .collect::<Vec<ServiceBrowserBuilder>>()
         .try_into()
         .expect("Unable to convert to array");
 
-    // let scan_time: u8 = 1;
+    let scan_time: u8 = 1;
     let mut conn = match init_sqlite(DB_NAME, DB_PATH).await {
         Ok(object) => object,
         Err(err) => {
@@ -128,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    for (i, browse) in browser.into_iter().enumerate() {
+    for (i, mut browse) in browser.into_iter().enumerate() {
         println!(
             "Initiating scan for {}",
             ServiceDetect::iter()
@@ -136,7 +130,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_or_else(String::new, |val| val.to_string())
         );
 
-        let mut browse = match MdnsBrowserAsync::new(browse) {
+        let mut browse = match browse
+            .timeout(tokio::time::Duration::from_secs(scan_time.into()))
+            .browse()
+        {
             Ok(object) => {
                 // println!("Created browser");
                 object
@@ -147,63 +144,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        // let start_time = std::time::Instant::now();
-
-        // browse.set_network_interface(NetworkInterface::AtIndex(3));
-
-        // 'service_loop: loop {
-        match browse
-            // .start_with_timeout(tokio::time::Duration::from_secs(scan_time.into()))
-            .start()
-            .await
-        {
-            Ok(()) => (),
-            Err(err) => {
-                eprintln!("Unable to start: {err}");
-                break;
-            }
-        };
-
         // println!("Starting service loop\n\n");
 
-        let discovery = match browse.next().await {
-            Some(result) => match result {
-                Ok(data) => data,
-                Err(err) => {
-                    eprintln!("Error: {err}");
-                    // break 'service_loop;
-                    continue;
-                }
-            },
-            None => {
-                eprintln!("NO DISCOVERY");
-                // break 'service_loop;
-                continue;
-            }
-        };
+        while let Some(Ok(discovery)) = browse.recv().await {
+            println!("Discovered service: {}", discovery.name());
+            servicer
+                .service
+                .push(Service::try_from(discovery).expect("Unable to convert"));
 
-        servicer
-            .service
-            .push(Service::try_from(discovery).expect("Unable to convert"));
+            save_svc(servicer.service.last().expect("Empty result"), conn.clone()).await?;
+        }
 
-        save_svc(servicer.service.last().expect("Empty result"), conn.clone()).await?;
+        println!("\nRecalled {} mDns devices", get_count(&mut conn).await?);
 
-        browse.shutdown().await.expect("Shutdown failed");
-
-        // if start_time.elapsed().as_secs() > scan_time.into() {
-        //     // browse.shutdown().await?;
-        // break 'service_loop;
-        // }
-        // }
-    }
-
-    println!("\nRecalled {} mDns devices", get_count(&mut conn).await?);
-
-    let all_items = get_all_items(&mut conn);
-    for item in &all_items.await? {
-        println!("\nName: {}", item.name());
-        println!("IP: {}", item.address());
-        println!("Hostname: {}", item.hostname());
+        let all_items = get_all_items(&mut conn);
+        for item in &all_items.await? {
+            println!("\nName: {}", item.name());
+            println!("IP: {}", item.address());
+            println!("Hostname: {}", item.hostname());
+        }
     }
 
     Ok(())
@@ -250,17 +209,17 @@ pub struct Service {
     hostname: String,
 }
 
-impl TryFrom<ServiceDiscovery> for Service {
+impl TryFrom<async_zeroconf::Service> for Service {
     type Error = ();
 
-    fn try_from(val: ServiceDiscovery) -> Result<Self, Self::Error> {
+    fn try_from(val: async_zeroconf::Service) -> Result<Self, Self::Error> {
         Ok(Self {
             time: String::new(),
             date: String::new(),
             name: val.name().to_string(),
-            address: val.address().to_string(),
-            port: *val.port(),
-            hostname: val.host_name().to_string(),
+            address: val.domain().clone().expect("Unable to get domain"),
+            port: val.port(),
+            hostname: val.host().clone().expect("No host to find"),
         })
     }
 }
