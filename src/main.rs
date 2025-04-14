@@ -6,9 +6,9 @@ use models::sqlite::{get_all_items, get_count, init_sqlite};
 use serde::Serialize;
 use strum::{EnumIter, IntoEnumIterator};
 use zeroconf::{
+    MdnsBrowser, ServiceDiscovery, ServiceType,
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
-    MdnsBrowser, ServiceDiscovery, ServiceType,
 };
 
 const DB_PATH: &str = "./";
@@ -103,6 +103,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "\tDiscovered: {}",
                     result.clone().expect("No results").name()
                 );
+                println!("\t\tIp Address: {}\n",
+                    result.clone().expect("No results").address()
+                );
 
                 let conn = rusqlite::Connection::open(DB_NAME).expect("DB does not exist");
 
@@ -132,7 +135,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             match event_loop.poll(std::time::Duration::from_millis(2)) {
                 Ok(()) => (),
                 Err(err) => panic!("Unable to poll: {err}"),
-            };
+            }
 
             if start_time.elapsed().as_secs() > scan_time.into() {
                 break;
