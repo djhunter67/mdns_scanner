@@ -15,8 +15,16 @@ This small project is a learning adventure in mDNS.  I scanned the network port 
     -`sudo systemctl status avahi-daemon.service` to ensure the service is activated
   - `sudo apt install sqlite3`
   
+### Windows
+  - TODO
+  
 - Next, you should be able to run the default program:
   - `cargo run`
+- If you have the compiled binary:
+  - `./mdns_scanner`  -> Linux x86_64
+  
+## Synopsys
+This project, in it's last working state, will infinitely scan and detect newly connected mDns packets on the network.
   
 - Expectation as of `version 0.1.0`
 
