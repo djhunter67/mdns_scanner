@@ -192,19 +192,19 @@ impl Service {
         )
     }
 
-    fn name(&self) -> &str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.clone()
     }
 
-    fn address(&self) -> &str {
-        &self.address
+    fn address(&self) -> String {
+        self.address.clone()
     }
 
     const fn port(&self) -> u16 {
         self.port
     }
 
-    fn hostname(&self) -> &str {
-        &self.hostname
+    fn hostname(&self) -> String {
+        self.hostname.clone()
     }
 }

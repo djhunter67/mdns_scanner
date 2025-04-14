@@ -30,7 +30,7 @@ pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> 
     ) {
         Ok(_) => (),
         Err(err) => eprintln!("TABLE creation error: {err}"),
-    };
+    }
 
     Ok(())
 }
