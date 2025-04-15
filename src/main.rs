@@ -6,9 +6,9 @@ use models::sqlite::{get_all_items, get_count, init_sqlite};
 use serde::Serialize;
 use strum::{EnumIter, IntoEnumIterator};
 use zeroconf::{
+    MdnsBrowser, ServiceDiscovery, ServiceType,
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
-    MdnsBrowser, ServiceDiscovery, ServiceType,
 };
 
 const DB_PATH: &str = "./";
@@ -112,13 +112,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_into()
         .expect("Unable to convert to array");
 
-    let scan_time: u8 = 1;
+    let scan_time: u8 = 0;
     init_sqlite(DB_NAME, DB_PATH)?;
 
     for (i, browse) in browser.iter_mut().enumerate() {
         // let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
         println!(
-            "Initiating {scan_time} second scan for {}",
+            "Scanning for \'_{}\' devices",
             ServiceDetect::iter().get(i).expect("No service")
         );
         // browse.set_network_interface(NetworkInterface::AtIndex(3));
@@ -161,7 +161,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(()) => (),
                 Err(err) => panic!("Unable to poll: {err}"),
             }
-
+            // allow for longer scan time
             if start_time.elapsed().as_secs() > scan_time.into() {
                 break;
             }
@@ -176,6 +176,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("IP: {}", item.address());
         println!("Hostname: {}", item.hostname());
     }
+
+    // Destroy the database file
+    std::fs::remove_file(format!("{DB_PATH}/{DB_NAME}")).unwrap_or_default();
 
     Ok(())
 }
