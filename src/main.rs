@@ -6,9 +6,9 @@ use models::sqlite::{get_all_items, get_count, init_sqlite};
 use serde::Serialize;
 use strum::{EnumIter, IntoEnumIterator};
 use zeroconf::{
-    MdnsBrowser, ServiceDiscovery, ServiceType,
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
+    MdnsBrowser, ServiceDiscovery, ServiceType,
 };
 
 const DB_PATH: &str = "./";
@@ -95,7 +95,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for browse in &mut browser {
         // let captured_svc: Arc<Mutex<Vec<Service>>> = Arc::new(Mutex::default());
-        println!("Initiating {scan_time} second scan");
+        {
+            std::io::_print(std::format_args_nl!(
+                "Initiating {scan_time} second scan for {}",
+                ServiceDetect::iter().get(i).expect("No service")
+            ));
+        };
         // browse.set_network_interface(NetworkInterface::AtIndex(3));
         browse.set_service_discovered_callback(Box::new(
             move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
