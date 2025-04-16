@@ -1,7 +1,16 @@
+use std::{any::Any, sync::Arc};
+
+use models::sqlite::{get_all_items, get_count, init_sqlite};
+use strum::IntoEnumIterator;
+use zeroconf::{
+    MdnsBrowser, ServiceDiscovery, ServiceType,
+    avahi::browser::AvahiMdnsBrowser,
+    prelude::{TEventLoop, TMdnsBrowser},
+};
+
 pub mod models;
 
 use std::fmt::Display;
-use zeroconf::ServiceDiscovery;
 
 use serde::Serialize;
 use strum::EnumIter;
@@ -173,4 +182,89 @@ impl Service {
     pub fn hostname(&self) -> String {
         self.hostname.clone()
     }
+}
+
+pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
+    let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
+    let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
+        .map(|val| {
+            MdnsBrowser::new(
+                ServiceType::new(val.into(), "tcp").expect("Unable to create service type"),
+            )
+        })
+        .collect::<Vec<AvahiMdnsBrowser>>()
+        .try_into()
+        .expect("Unable to convert to array");
+
+    let scan_time: u8 = 0;
+    init_sqlite(DB_NAME, DB_PATH)?;
+
+    for (i, browse) in browser.iter_mut().enumerate() {
+        if ServiceDetect::to_iter()
+            .get(i)
+            .expect("No data to scan")
+            .to_string()
+            .ne("http")
+        {
+            continue;
+        }
+
+        println!(
+            "Scanning for \'_{}\' devices",
+            ServiceDetect::to_iter().get(i).expect("No service")
+        );
+        // browse.set_network_interface(zeroconf::NetworkInterface::AtIndex(3)); // Pick the connected network port
+        browse.set_service_discovered_callback(Box::new(
+            move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
+                // Log instead of printing
+                // println!(
+                    // "\tDiscovered: {}",
+                    // result.clone().expect("No results").name()
+                // );
+                // println!("\t\tIp Address: {}\n",
+                    // result.clone().expect("No results").address()
+                // );
+
+                let conn = rusqlite::Connection::open(DB_NAME).expect("DB does not exist");
+
+                conn.execute(
+            "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            [
+            chrono::Local::now().time().to_string(),
+            chrono::Local::now().date_naive().to_string(),
+            result.clone().expect("Does not exist").name().to_string(),
+            result.clone().expect("Does not exist").address().to_string(),
+                result.clone().expect("Does not exist").port().to_string(),
+                result.expect("Does not exist").host_name().to_string(),
+            ],
+            )
+            .unwrap_or_default();
+            },
+        ));
+
+        let event_loop = match browse.browse_services() {
+            Ok(object) => object,
+            Err(err) => panic!("Unable to create event loop: {err}"),
+        };
+
+        let start_time = std::time::Instant::now();
+
+        loop {
+            match event_loop.poll(std::time::Duration::from_millis(2)) {
+                Ok(()) => (),
+                Err(err) => panic!("Unable to poll: {err}"),
+            }
+            // allow for adjustable scan time
+            if start_time.elapsed().as_secs() > scan_time.into() {
+                break;
+            }
+        }
+    }
+    // Log this
+    // println!("\nDiscovered {} mDns devices", get_count(&mut conn)?);
+    let mut return_vec: Vec<Service> = Vec::with_capacity(get_count(&mut conn)?.into());
+    return_vec.extend(get_all_items(&mut conn)?);
+    std::fs::remove_file(format!("{DB_PATH}/{DB_NAME}")).unwrap_or_default();
+
+    Ok(return_vec)
 }
