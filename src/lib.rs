@@ -184,6 +184,12 @@ impl Service {
     }
 }
 
+/// # Result
+///   - Vector of discovered service in the ``Service`` struct
+/// # Errors
+///   - Box<dyn std::error::Error> if any error occurs
+/// # Panics
+///   - If the database cannot be created or opened
 pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
     let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()

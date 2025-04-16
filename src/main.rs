@@ -1,7 +1,9 @@
-use mdns_scanner::mdns_scan;
+use std::error::Error;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let results = mdns_scan()?;
+use mdns_scanner::{Service, mdns_scan};
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let results: Vec<Service> = mdns_scan()?;
 
     for item in &results {
         println!("Name: {}", item.name());
