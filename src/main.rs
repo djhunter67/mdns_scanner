@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Scanning for \'_{}\' devices",
             ServiceDetect::to_iter().get(i).expect("No service")
         );
-        // browse.set_network_interface(NetworkInterface::AtIndex(3));  // Pick the connected network port
+        // browse.set_network_interface(zeroconf::NetworkInterface::AtIndex(3)); // Pick the connected network port
         browse.set_service_discovered_callback(Box::new(
             move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
                 println!(
@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(()) => (),
                 Err(err) => panic!("Unable to poll: {err}"),
             }
-            // allow for longer scan time
+            // allow for adjustable scan time
             if start_time.elapsed().as_secs() > scan_time.into() {
                 break;
             }
