@@ -3,6 +3,14 @@ name = "mdns_scanner"
 version = "0.2.0"
 edition = "2024"
 
+[lib]
+path = "src/lib.rs"
+name = "mdns_scanner"
+
+[[bin]]
+path = "src/main.rs"
+name = "mdns_scanner"
+
 [lints.clippy]
 pedantic = { level = "deny", priority = 1 }
 wildcard_imports = "deny"
@@ -32,4 +40,6 @@ rusqlite = { version = "0.34.0", features = ["bundled", "chrono"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 strum = { version = "0.27.1", features = ["derive"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["json", "env-filter"] }
 zeroconf = "0.15.0"
