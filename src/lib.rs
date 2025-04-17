@@ -1,7 +1,8 @@
 use std::{any::Any, sync::Arc};
 
-use models::sqlite::{get_all_items, get_count, init_sqlite};
+use models::sqlite::{get_all_items, init_sqlite};
 use strum::IntoEnumIterator;
+use tracing::{debug, info, instrument};
 use zeroconf::{
     MdnsBrowser, ServiceDiscovery, ServiceType,
     avahi::browser::AvahiMdnsBrowser,
@@ -154,6 +155,11 @@ impl TryFrom<ServiceDiscovery> for Service {
 #[allow(dead_code)]
 impl Service {
     #[must_use]
+    #[instrument(
+        name = "mdns_scanner",
+        target = "mdns result formatting",
+        level = "info"
+    )]
     pub fn as_string(&self) -> String {
         format!(
             "Name: {}, Address: {}, Port: {}, Protocol: {}",
@@ -165,11 +171,25 @@ impl Service {
     }
 
     #[must_use]
+    #[instrument(name = "mdns_scanner", target = "mdns result time", level = "info")]
+    pub fn time(&self) -> String {
+        self.time.clone()
+    }
+
+    #[must_use]
+    #[instrument(name = "mdns_scanner", target = "mdns result date", level = "info")]
+    pub fn date(&self) -> String {
+        self.date.clone()
+    }
+
+    #[must_use]
+    #[instrument(name = "mdns_scanner", target = "mdns result name", level = "info")]
     pub fn name(&self) -> String {
         self.name.clone()
     }
 
     #[must_use]
+    #[instrument(name = "mdns_scanner", target = "mdns result address", level = "info")]
     pub fn address(&self) -> String {
         self.address.clone()
     }
@@ -179,6 +199,7 @@ impl Service {
     }
 
     #[must_use]
+    #[instrument(name = "mdns_scanner", target = "mdns result hostname", level = "info")]
     pub fn hostname(&self) -> String {
         self.hostname.clone()
     }
@@ -190,6 +211,7 @@ impl Service {
 ///   - Box<dyn std::error::Error> if any error occurs
 /// # Panics
 ///   - If the database cannot be created or opened
+#[instrument(name = "mdns_scanner", target = "mdns_scan", level = "info")]
 pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
     let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
@@ -206,6 +228,7 @@ pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
     init_sqlite(DB_NAME, DB_PATH)?;
 
     for (i, browse) in browser.iter_mut().enumerate() {
+        // Restrict all scans to the _http mDns protocol
         if ServiceDetect::to_iter()
             .get(i)
             .expect("No data to scan")
@@ -215,7 +238,7 @@ pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
             continue;
         }
 
-        println!(
+        info!(
             "Scanning for \'_{}\' devices",
             ServiceDetect::to_iter().get(i).expect("No service")
         );
@@ -223,23 +246,24 @@ pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
         browse.set_service_discovered_callback(Box::new(
             move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
                 // Log instead of printing
-                // println!(
-                    // "\tDiscovered: {}",
-                    // result.clone().expect("No results").name()
-                // );
-                // println!("\t\tIp Address: {}\n",
-                    // result.clone().expect("No results").address()
-                // );
+                debug!(
+                    "\tDiscovered: {}",
+                    result.clone().expect("No results").name()
+                );
+                debug!("\t\tIp Address: {}\n",
+                    result.clone().expect("No results").address()
+                );
 
                 let conn = rusqlite::Connection::open(DB_NAME).expect("DB does not exist");
 
                 conn.execute(
             "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             [
-            chrono::Local::now().time().to_string(),
-            chrono::Local::now().date_naive().to_string(),
-            result.clone().expect("Does not exist").name().to_string(),
-            result.clone().expect("Does not exist").address().to_string(),
+                chrono::Local::now().time().format("%H:%M").to_string(),
+                // chrono::Local::now().date_naive().to_string(),
+                chrono::Local::now().date_naive().format("%Y-%b-%d").to_string(),
+                result.clone().expect("Does not exist").name().to_string(),
+                result.clone().expect("Does not exist").address().to_string(),
                 result.clone().expect("Does not exist").port().to_string(),
                 result.expect("Does not exist").host_name().to_string(),
             ],
@@ -267,9 +291,25 @@ pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
         }
     }
     // Log this
-    // println!("\nDiscovered {} mDns devices", get_count(&mut conn)?);
-    let mut return_vec: Vec<Service> = Vec::with_capacity(get_count(&mut conn)?.into());
-    return_vec.extend(get_all_items(&mut conn)?);
+    let mut results = get_all_items(&mut conn)?;
+    let scan_count = results.len();
+    debug!("\nDiscovered {} mDns devices", scan_count);
+    let mut return_vec: Vec<Service> = Vec::with_capacity(scan_count);
+    // Filter out anything that is not a poco
+    return_vec.extend(
+        results
+            .iter_mut()
+            .filter(|result| result.name().to_lowercase().contains("poco"))
+            .map(|result| Service {
+                time: result.time(),
+                date: result.date(),
+                name: result.name(),
+                address: result.address(),
+                port: result.port(),
+                hostname: result.hostname(),
+            }),
+    );
+    // return_vec.extend(results);
     std::fs::remove_file(format!("{DB_PATH}/{DB_NAME}")).unwrap_or_default();
 
     Ok(return_vec)

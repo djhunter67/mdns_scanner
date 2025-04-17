@@ -1,4 +1,5 @@
 use rusqlite::Connection;
+use tracing::instrument;
 
 use crate::Service;
 
@@ -6,6 +7,11 @@ use crate::Service;
 ///   - Attempt to create a file that already exists
 /// # Errors
 ///   - Unable to create the db file
+#[instrument(
+    name = "Sqlite connection getter",
+    target = "mdns_scanner",
+    level = "info"
+)]
 pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> {
     let conn = match rusqlite::Connection::open(format!("{db_path}/{db_name}")) {
         Ok(conn) => conn,
@@ -39,6 +45,11 @@ pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> 
 ///  - There is no result from the database
 /// # Errors
 ///  - None
+#[instrument(
+    name = "Number of scan results",
+    target = "mdns_scanner",
+    level = "info"
+)]
 pub fn get_count(conn: &mut Connection) -> Result<u8, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT COUNT(*) FROM services")?;
     let count = stmt.query_map([], |row| {
@@ -58,6 +69,11 @@ pub fn get_count(conn: &mut Connection) -> Result<u8, rusqlite::Error> {
 ///   - ``SqliteDB`` returns no information stored
 /// # Errors
 ///   - None
+#[instrument(
+    name = "Retrieve all mDns scan results",
+    target = "mdns_scanner",
+    level = "info"
+)]
 pub fn get_all_items(conn: &mut Connection) -> Result<Vec<Service>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT * FROM services")?;
     let rows = stmt.query_map([], |row| {
