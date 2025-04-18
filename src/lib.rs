@@ -2,7 +2,8 @@ use std::{any::Any, sync::Arc};
 
 use models::sqlite::{get_all_items, init_sqlite};
 use strum::IntoEnumIterator;
-use tracing::{debug, info, instrument};
+use tracing::{debug, info, instrument, warn};
+use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 use zeroconf::{
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
@@ -19,7 +20,7 @@ use strum::EnumIter;
 pub const DB_PATH: &str = "./";
 pub const DB_NAME: &str = "mDns.db";
 
-#[derive(EnumIter, Debug)]
+#[derive(EnumIter, Debug, PartialEq, PartialOrd, Eq)]
 pub enum ServiceDetect {
     Http,
     Scanner,
@@ -152,7 +153,6 @@ impl TryFrom<ServiceDiscovery> for Service {
     }
 }
 
-#[allow(dead_code)]
 impl Service {
     #[must_use]
     #[instrument(
@@ -211,12 +211,8 @@ impl Service {
 ///   - Box<dyn std::error::Error> if any error occurs
 /// # Panics
 ///   - If the database cannot be created or opened
-#[instrument(
-    name = "Initiate and run the mDns scan",
-    target = "mdns_scanner",
-    level = "info"
-)]
-pub fn mdns_scan(scan_items: &[ServiceDetect]) -> Result<Vec<Service>, Box<dyn std::error::Error>> {
+#[instrument(name = "mDns scanner", target = "mdns_scanner", level = "info")]
+pub fn mdns_scan(scan_items: ServiceDetect) -> Result<Vec<Service>, Box<dyn std::error::Error>> {
     let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
@@ -232,13 +228,16 @@ pub fn mdns_scan(scan_items: &[ServiceDetect]) -> Result<Vec<Service>, Box<dyn s
     init_sqlite(DB_NAME, DB_PATH)?;
 
     for (i, browse) in browser.iter_mut().enumerate() {
-        // Restrict all scans to the _http mDns protocol
         if ServiceDetect::to_iter()
             .get(i)
-            .expect("No data to scan")
-            .to_string()
-            .contains(scan_items.get(i).expect("No match").to_string().as_str())
+            .expect("no match")
+            .ne(&scan_items)
         {
+            warn!(
+                "Skipping scan for \'_{}\' devices",
+                ServiceDetect::to_iter().get(i).expect("No service")
+            );
+
             continue;
         }
 
@@ -317,4 +316,44 @@ pub fn mdns_scan(scan_items: &[ServiceDetect]) -> Result<Vec<Service>, Box<dyn s
     std::fs::remove_file(format!("{DB_PATH}/{DB_NAME}")).unwrap_or_default();
 
     Ok(return_vec)
+}
+
+#[must_use]
+/// # Result
+///  - `None` if the `RUST_LOG` environment variable is not set
+/// # Errors
+///  - If the `RUST_LOG` environment variable is set but the value is invalid
+/// # Panics
+///  - If the `RUST_LOG` environment variable is set but the value is invalid
+pub fn get_subcriber(debug: bool) -> impl tracing::Subscriber + Send + Sync {
+    let env_filter = if debug {
+        String::from("info")
+    } else {
+        String::from("debug")
+    };
+
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(env_filter));
+
+    let stdout_log = tracing_subscriber::fmt::layer().without_time().pretty();
+    let subscriber = Registry::default().with(env_filter).with(stdout_log);
+
+    let json_log = if debug {
+        None
+    } else {
+        let json_log = tracing_subscriber::fmt::layer().json();
+        Some(json_log)
+    };
+
+    subscriber.with(json_log)
+}
+
+/// # Result
+///  - `None` if the `RUST_LOG` environment variable is not set
+/// # Errors
+///  - If the `RUST_LOG` environment variable is set but the value is invalid
+/// # Panics
+///  - If the `RUST_LOG` environment variable is set but the value is invalid
+pub fn init_subscriber(subscriber: impl tracing::Subscriber + Send + Sync) {
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
 }

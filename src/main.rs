@@ -1,15 +1,22 @@
 use std::error::Error;
 
-use mdns_scanner::{Service, mdns_scan};
+use mdns_scanner::{init_subscriber, mdns_scan, Service, ServiceDetect};
+use tracing::info;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let results: Vec<Service> = mdns_scan()?;
+    let tracing_subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .finish();
+
+    init_subscriber(tracing_subscriber);
+    let items_to_scan: ServiceDetect = ServiceDetect::Http;
+    let results: Vec<Service> = mdns_scan(items_to_scan)?;
 
     for item in &results {
-        println!("Name: {}", item.name());
-        println!("Address: {}", item.address());
+        info!("Name: {}", item.name());
+        info!("Address: {}", item.address());
         // println!("Port: {}", item.port());
-        println!("Host Name: {}", item.hostname());
+        info!("Host Name: {}", item.hostname());
     }
 
     Ok(())
