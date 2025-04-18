@@ -4,9 +4,9 @@ use models::sqlite::{get_all_items, init_sqlite};
 use strum::IntoEnumIterator;
 use tracing::{debug, info, instrument};
 use zeroconf::{
-    MdnsBrowser, ServiceDiscovery, ServiceType,
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
+    MdnsBrowser, ServiceDiscovery, ServiceType,
 };
 
 pub mod models;
@@ -19,7 +19,7 @@ use strum::EnumIter;
 pub const DB_PATH: &str = "./";
 pub const DB_NAME: &str = "mDns.db";
 
-#[derive(EnumIter)]
+#[derive(EnumIter, Debug)]
 pub enum ServiceDetect {
     Http,
     Scanner,
@@ -211,8 +211,12 @@ impl Service {
 ///   - Box<dyn std::error::Error> if any error occurs
 /// # Panics
 ///   - If the database cannot be created or opened
-#[instrument(name = "mdns_scanner", target = "mdns_scan", level = "info")]
-pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
+#[instrument(
+    name = "Initiate and run the mDns scan",
+    target = "mdns_scanner",
+    level = "info"
+)]
+pub fn mdns_scan(scan_items: &[ServiceDetect]) -> Result<Vec<Service>, Box<dyn std::error::Error>> {
     let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
@@ -233,7 +237,7 @@ pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
             .get(i)
             .expect("No data to scan")
             .to_string()
-            .ne("http")
+            .contains(scan_items.get(i).expect("No match").to_string().as_str())
         {
             continue;
         }
