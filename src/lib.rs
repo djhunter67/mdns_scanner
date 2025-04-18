@@ -141,6 +141,7 @@ pub struct Service {
 impl TryFrom<ServiceDiscovery> for Service {
     type Error = ();
 
+    #[instrument(name = "mdns_scanner", target = "mdns_scanner", level = "info")]
     fn try_from(val: ServiceDiscovery) -> Result<Self, Self::Error> {
         Ok(Self {
             time: String::new(),
@@ -156,8 +157,8 @@ impl TryFrom<ServiceDiscovery> for Service {
 impl Service {
     #[must_use]
     #[instrument(
-        name = "mdns_scanner",
-        target = "mdns result formatting",
+        name = "print the struct as a string",
+        target = "mdns_scanner",
         level = "info"
     )]
     pub fn as_string(&self) -> String {
@@ -171,35 +172,41 @@ impl Service {
     }
 
     #[must_use]
-    #[instrument(name = "mdns_scanner", target = "mdns result time", level = "info")]
+    #[instrument(name = "time discovered", target = "mdns_scanner", level = "info")]
     pub fn time(&self) -> String {
         self.time.clone()
     }
 
     #[must_use]
-    #[instrument(name = "mdns_scanner", target = "mdns result date", level = "info")]
+    #[instrument(name = "date discovered", target = "mdns_scanner", level = "info")]
     pub fn date(&self) -> String {
         self.date.clone()
     }
 
     #[must_use]
-    #[instrument(name = "mdns_scanner", target = "mdns result name", level = "info")]
+    #[instrument(name = "name of item", target = "mdns_scanner", level = "info")]
     pub fn name(&self) -> String {
         self.name.clone()
     }
 
     #[must_use]
-    #[instrument(name = "mdns_scanner", target = "mdns result address", level = "info")]
+    #[instrument(name = "IP address of item", target = "mdns_scanner", level = "info")]
     pub fn address(&self) -> String {
         self.address.clone()
     }
 
-    const fn port(&self) -> u16 {
+    #[must_use]
+    #[instrument(name = "Port of the item", target = "mdns_scanner", level = "info")]
+    pub fn port(&self) -> u16 {
         self.port
     }
 
     #[must_use]
-    #[instrument(name = "mdns_scanner", target = "mdns result hostname", level = "info")]
+    #[instrument(
+        name = "HOSTNAME of detected devices",
+        target = "mdns_scanner",
+        level = "info"
+    )]
     pub fn hostname(&self) -> String {
         self.hostname.clone()
     }
@@ -211,8 +218,14 @@ impl Service {
 ///   - Box<dyn std::error::Error> if any error occurs
 /// # Panics
 ///   - If the database cannot be created or opened
-#[instrument(name = "mDns scanner", target = "mdns_scanner", level = "info")]
-pub fn mdns_scan(scan_items: ServiceDetect) -> Result<Vec<Service>, Box<dyn std::error::Error>> {
+/// # Parameters
+///   - `scan_items`: The mDns protocol for with to scan; ex. ``ServiceDetect::Http`` or ``ServiceDetect::Scanner``
+///   - `filter`: The filter to apply to the scan results; ex. ``"Some(poco)"`` or ``"Some(printer)"`` or ``"Some(samsung)"``
+#[instrument(name = "mDns Scan", target = "mdns_scanner", level = "info")]
+pub fn mdns_scan(
+    scan_items: Option<ServiceDetect>,
+    filter: Option<&str>,
+) -> Result<Vec<Service>, Box<dyn std::error::Error>> {
     let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
@@ -224,21 +237,22 @@ pub fn mdns_scan(scan_items: ServiceDetect) -> Result<Vec<Service>, Box<dyn std:
         .try_into()
         .expect("Unable to convert to array");
 
-    let scan_time: u8 = 0;
+    let scan_time: u16 = 1000;
     init_sqlite(DB_NAME, DB_PATH)?;
 
     for (i, browse) in browser.iter_mut().enumerate() {
-        if ServiceDetect::to_iter()
-            .get(i)
-            .expect("no match")
-            .ne(&scan_items)
-        {
-            warn!(
-                "Skipping scan for \'_{}\' devices",
-                ServiceDetect::to_iter().get(i).expect("No service")
-            );
-
-            continue;
+        if let Some(ref scan_items) = scan_items {
+            if ServiceDetect::to_iter()
+                .get(i)
+                .expect("no match")
+                .ne(scan_items)
+            {
+                debug!(
+                    "Skipping scan for \'_{}\' devices",
+                    ServiceDetect::to_iter().get(i).expect("No service")
+                );
+                continue;
+            }
         }
 
         info!(
@@ -250,10 +264,10 @@ pub fn mdns_scan(scan_items: ServiceDetect) -> Result<Vec<Service>, Box<dyn std:
             move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
                 // Log instead of printing
                 debug!(
-                    "\tDiscovered: {}",
+                    "Discovered: {}",
                     result.clone().expect("No results").name()
                 );
-                debug!("\t\tIp Address: {}\n",
+                debug!("Ip Address: {}",
                     result.clone().expect("No results").address()
                 );
 
@@ -288,32 +302,42 @@ pub fn mdns_scan(scan_items: ServiceDetect) -> Result<Vec<Service>, Box<dyn std:
                 Err(err) => panic!("Unable to poll: {err}"),
             }
             // allow for adjustable scan time
-            if start_time.elapsed().as_secs() > scan_time.into() {
+            if start_time.elapsed().as_millis() > scan_time.into() {
                 break;
             }
         }
     }
-    // Log this
-    let mut results = get_all_items(&mut conn)?;
+    let results = get_all_items(&mut conn)?;
     let scan_count = results.len();
-    debug!("\nDiscovered {} mDns devices", scan_count);
+    info!("Discovered {} mDns devices", scan_count);
     let mut return_vec: Vec<Service> = Vec::with_capacity(scan_count);
     // Filter out anything that is not a poco
-    return_vec.extend(
-        results
-            .iter_mut()
-            .filter(|result| result.name().to_lowercase().contains("poco"))
-            .map(|result| Service {
-                time: result.time(),
-                date: result.date(),
-                name: result.name(),
-                address: result.address(),
-                port: result.port(),
-                hostname: result.hostname(),
-            }),
-    );
-    // return_vec.extend(results);
-    std::fs::remove_file(format!("{DB_PATH}/{DB_NAME}")).unwrap_or_default();
+    if filter.is_none() {
+        debug!("No filter provided, returning all results");
+        return_vec.extend(results);
+    } else {
+        info!("Filtering results by \'{}\'", filter.unwrap_or_default());
+        return_vec.extend(
+            results
+                .iter()
+                .filter(|result| {
+                    result
+                        .name()
+                        .to_lowercase()
+                        .contains(filter.unwrap_or_default())
+                })
+                .map(|result| Service {
+                    time: result.time(),
+                    date: result.date(),
+                    name: result.name(),
+                    address: result.address(),
+                    port: result.port(),
+                    hostname: result.hostname(),
+                }),
+        );
+    }
+    warn!("removing the temp database");
+    std::fs::remove_file(format!("{DB_PATH}/{DB_NAME}")).unwrap_or_default(); // :memory: not configured correctly
 
     Ok(return_vec)
 }
@@ -332,10 +356,12 @@ pub fn get_subcriber(debug: bool) -> impl tracing::Subscriber + Send + Sync {
         String::from("debug")
     };
 
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(env_filter));
+    let env_filter = EnvFilter::new(env_filter);
 
-    let stdout_log = tracing_subscriber::fmt::layer().without_time().pretty();
+    let stdout_log = tracing_subscriber::fmt::layer()
+        .compact()
+        // .without_time()
+        .pretty();
     let subscriber = Registry::default().with(env_filter).with(stdout_log);
 
     let json_log = if debug {

@@ -1,23 +1,25 @@
 use std::error::Error;
 
-use mdns_scanner::{init_subscriber, mdns_scan, Service, ServiceDetect};
-use tracing::info;
+use mdns_scanner::{get_subcriber, init_subscriber, mdns_scan, Service, ServiceDetect};
+use tracing::{info, instrument, warn};
 
+#[instrument(name = "mdns_scan main fn", target = "mdns_scanner", level = "info")]
 fn main() -> Result<(), Box<dyn Error>> {
-    let tracing_subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
-        .finish();
+    let tracing_subscriber = get_subcriber(true);
 
     init_subscriber(tracing_subscriber);
-    let items_to_scan: ServiceDetect = ServiceDetect::Http;
-    let results: Vec<Service> = mdns_scan(items_to_scan)?;
+    let results: Vec<Service> = mdns_scan(Some(ServiceDetect::Http), Some("poco"))?;
+    // let results: Vec<Service> = mdns_scan(Some(ServiceDetect::Http), None)?;
+    // let results: Vec<Service> = mdns_scan(None, None)?; // Open scan
 
     for item in &results {
-        info!("Name: {}", item.name());
-        info!("Address: {}", item.address());
-        // println!("Port: {}", item.port());
-        info!("Host Name: {}", item.hostname());
+        warn!("Name: {}", item.name());
+        warn!("Address: {}", item.address());
+        warn!("Port: {}", item.port());
+        warn!("Host Name: {}", item.hostname());
     }
+
+    info!("Scan results: {}", results.len());
 
     Ok(())
 }
