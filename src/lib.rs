@@ -12,8 +12,6 @@ use zeroconf::{
 
 pub mod models;
 
-use std::fmt::Display;
-
 use serde::Serialize;
 use strum::EnumIter;
 
@@ -84,7 +82,7 @@ impl ServiceDetect {
     }
 }
 
-impl Display for ServiceDetect {
+impl std::fmt::Display for ServiceDetect {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Http => write!(f, "http"),
@@ -102,6 +100,31 @@ impl Display for ServiceDetect {
             Self::CompanionLink => write!(f, "companionlink"),
             Self::SpotifyConnect => write!(f, "spotifyconnect"),
             Self::AirPlay => write!(f, "airplay"),
+        }
+    }
+}
+
+impl TryFrom<String> for ServiceDetect {
+    type Error = ();
+
+    fn try_from(val: String) -> Result<Self, Self::Error> {
+        match val.as_str() {
+            "http" => Ok(Self::Http),
+            "scanner" => Ok(Self::Scanner),
+            "androidtvremote2" => Ok(Self::AndroidTvRemote2),
+            "uscans" => Ok(Self::Uscans),
+            "pdldatastream" => Ok(Self::PdlDataStream),
+            "printer" => Ok(Self::Printer),
+            "nvshieldremote" => Ok(Self::NvShieldRemote),
+            "http-alt" => Ok(Self::HttpAlt),
+            "sftp-ssh" => Ok(Self::SftpSsh),
+            "ssh" => Ok(Self::Ssh),
+            "googlezone" => Ok(Self::GoogleZone),
+            "googlecast" => Ok(Self::GoogleCast),
+            "companionlink" => Ok(Self::CompanionLink),
+            "spotifyconnect" => Ok(Self::SpotifyConnect),
+            "airplay" => Ok(Self::AirPlay),
+            _ => panic!("Unknown service type"),
         }
     }
 }
@@ -128,6 +151,42 @@ impl From<ServiceDetect> for &str {
     }
 }
 
+/// # Getters
+///  - `time()`: The time the service was discovered
+///  - `date()`: The date the service was discovered
+///  - `name()`: The name of the service
+///  - `address()`: The IP address of the service
+///  - `port()`: The port of the service
+///  - `hostname()`: The hostname of the service
+/// # Example
+/// ```
+/// let service = Service {
+///     time: String::new(),
+///     date: String::new(),
+///     name: String::from("Test Service"),
+///     address: String::from(192.168.33.268),
+///     port: 8080,
+///     hostname: String::from("Test Hostname"),
+/// };
+/// assert_eq!(service.name(), "Test Service");
+/// assert_eq!(service.address(), "192.168.33.268");
+/// assert_eq!(service.port(), 8080);
+/// assert_eq!(service.hostname(), "Test Hostname");
+/// ```
+///
+/// # Service
+///  - Struct to hold the discovered service information
+/// # Fields
+///  - `time`: The time the service was discovered
+///  - `date`: The date the service was discovered
+///  - `name`: The name of the service
+///  - `address`: The IP address of the service
+///  - `port`: The port of the service
+///  - `hostname`: The hostname of the service
+/// # Errors
+///  - `()` if any error occurs
+/// # Panics
+///  - If the service cannot be converted from `ServiceDiscovery`
 #[derive(Default, Serialize, Debug)]
 pub struct Service {
     time: String,
