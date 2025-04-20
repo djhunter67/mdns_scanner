@@ -2,7 +2,7 @@ use std::{any::Any, sync::Arc};
 
 use models::sqlite::{get_all_items, init_sqlite};
 use strum::IntoEnumIterator;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 use zeroconf::{
     avahi::browser::AvahiMdnsBrowser,
@@ -269,6 +269,23 @@ impl Service {
     pub fn hostname(&self) -> String {
         self.hostname.clone()
     }
+
+    #[must_use]
+    #[instrument(
+        name = "print the Error if the struct is empty",
+        target = "mdns_scanner",
+        level = "info"
+    )]
+    pub fn error(err: Box<dyn std::error::Error>) -> Self {
+        Self {
+            time: String::new(),
+            date: String::new(),
+            name: String::from("{err:#?}"),
+            address: String::new(),
+            port: 0,
+            hostname: String::new(),
+        }
+    }
 }
 
 /// # Result
@@ -348,22 +365,26 @@ pub fn mdns_scan(
             },
         ));
 
-        let event_loop = match browse.browse_services() {
-            Ok(object) => object,
-            Err(err) => panic!("Unable to create event loop: {err}"),
-        };
+        if let Ok(event_loop) = browse.browse_services() {
+            debug!("Event loop created");
+            let start_time = std::time::Instant::now();
 
-        let start_time = std::time::Instant::now();
-
-        loop {
-            match event_loop.poll(std::time::Duration::from_millis(2)) {
-                Ok(()) => (),
-                Err(err) => panic!("Unable to poll: {err}"),
+            loop {
+                match event_loop.poll(std::time::Duration::from_millis(2)) {
+                    Ok(()) => (),
+                    Err(err) => {
+                        error!("Unable to poll: {err}");
+                        return Err("Unable to poll".into());
+                    }
+                }
+                // allow for adjustable scan time
+                if start_time.elapsed().as_millis() > scan_time.into() {
+                    break;
+                }
             }
-            // allow for adjustable scan time
-            if start_time.elapsed().as_millis() > scan_time.into() {
-                break;
-            }
+        } else {
+            error!("Unable to create event loop");
+            return Err("Unable to create event loop".into());
         }
     }
     let results = get_all_items(&mut conn)?;
