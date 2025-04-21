@@ -15,8 +15,7 @@ pub mod models;
 use serde::Serialize;
 use strum::EnumIter;
 
-pub const DB_PATH: &str = "./";
-pub const DB_NAME: &str = "mDns.db";
+pub const DB_PATH: &str = "./mDns.db";
 
 #[derive(EnumIter, Debug, PartialEq, PartialOrd, Eq)]
 pub enum ServiceDetect {
@@ -294,15 +293,9 @@ impl Service {
 ///   - Box<dyn std::error::Error> if any error occurs
 /// # Panics
 ///   - If the database cannot be created or opened
-/// # Parameters
-///   - `scan_items`: The mDns protocol for with to scan; ex. ``ServiceDetect::Http`` or ``ServiceDetect::Scanner``
-///   - `filter`: The filter to apply to the scan results; ex. ``"Some(poco)"`` or ``"Some(printer)"`` or ``"Some(samsung)"``
-#[instrument(name = "mDns Scan", target = "mdns_scanner", level = "info")]
-pub fn mdns_scan(
-    scan_items: Option<ServiceDetect>,
-    filter: Option<&str>,
-) -> Result<Vec<Service>, Box<dyn std::error::Error>> {
-    let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
+#[instrument(name = "mdns_scanner", target = "mdns_scan", level = "info")]
+pub fn mdns_scan() -> Result<Vec<Service>, Box<dyn std::error::Error>> {
+    // let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
             MdnsBrowser::new(
@@ -313,8 +306,7 @@ pub fn mdns_scan(
         .try_into()
         .expect("Unable to convert to array");
 
-    let scan_time: u16 = 1000;
-    init_sqlite(DB_NAME, DB_PATH)?;
+    let scan_time: u8 = 0;
 
     for (i, browse) in browser.iter_mut().enumerate() {
         if let Some(ref scan_items) = scan_items {
@@ -347,7 +339,8 @@ pub fn mdns_scan(
                     result.clone().expect("No results").address()
                 );
 
-                let conn = rusqlite::Connection::open(DB_NAME).expect("DB does not exist");
+                let conn = init_sqlite(DB_PATH).expect("Unable to open database");
+
 
                 conn.execute(
             "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -387,37 +380,27 @@ pub fn mdns_scan(
             return Err("Unable to create event loop".into());
         }
     }
-    let results = get_all_items(&mut conn)?;
+    let mut conn = init_sqlite(DB_PATH)?;
+    let mut results = get_all_items(&mut conn)?;
     let scan_count = results.len();
     info!("Discovered {} mDns devices", scan_count);
     let mut return_vec: Vec<Service> = Vec::with_capacity(scan_count);
     // Filter out anything that is not a poco
-    if filter.is_none() {
-        debug!("No filter provided, returning all results");
-        return_vec.extend(results);
-    } else {
-        info!("Filtering results by \'{}\'", filter.unwrap_or_default());
-        return_vec.extend(
-            results
-                .iter()
-                .filter(|result| {
-                    result
-                        .name()
-                        .to_lowercase()
-                        .contains(filter.unwrap_or_default())
-                })
-                .map(|result| Service {
-                    time: result.time(),
-                    date: result.date(),
-                    name: result.name(),
-                    address: result.address(),
-                    port: result.port(),
-                    hostname: result.hostname(),
-                }),
-        );
-    }
-    warn!("removing the temp database");
-    std::fs::remove_file(format!("{DB_PATH}/{DB_NAME}")).unwrap_or_default(); // :memory: not configured correctly
+    return_vec.extend(
+        results
+            .iter_mut()
+            .filter(|result| result.name().to_lowercase().contains("poco"))
+            .map(|result| Service {
+                time: result.time(),
+                date: result.date(),
+                name: result.name(),
+                address: result.address(),
+                port: result.port(),
+                hostname: result.hostname(),
+            }),
+    );
+    // return_vec.extend(results);
+    std::fs::remove_file(DB_PATH).unwrap_or_default();
 
     Ok(return_vec)
 }

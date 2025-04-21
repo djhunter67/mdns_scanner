@@ -12,12 +12,12 @@ use crate::Service;
     target = "mdns_scanner",
     level = "info"
 )]
-pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> {
-    let conn = match rusqlite::Connection::open(format!("{db_path}/{db_name}")) {
+pub fn init_sqlite(db_path: &str) -> Result<Connection, rusqlite::Error> {
+    let conn = match rusqlite::Connection::open(db_path) {
         Ok(conn) => conn,
         Err(err) => {
             eprintln!("Unable to open the DB: {err}");
-            std::fs::File::create_new(format!("{db_path}/{db_name}"))
+            std::fs::File::create_new(db_path)
                 .unwrap_or_else(|err| panic!("DB file already exists: {err}"));
             return Err(rusqlite::Error::InvalidPath(db_path.into()));
         }
@@ -38,7 +38,7 @@ pub fn init_sqlite(db_name: &str, db_path: &str) -> Result<(), rusqlite::Error> 
         Err(err) => eprintln!("TABLE creation error: {err}"),
     }
 
-    Ok(())
+    Ok(conn)
 }
 
 /// # Panics
