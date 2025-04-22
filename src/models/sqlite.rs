@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, DatabaseName};
 use tracing::instrument;
 
 use crate::Service;
@@ -22,6 +22,14 @@ pub fn init_sqlite(db_path: &str) -> Result<Connection, rusqlite::Error> {
             return Err(rusqlite::Error::InvalidPath(db_path.into()));
         }
     };
+
+    conn.pragma_update(Some(DatabaseName::Main), "foriegn_key", "true")?;
+    conn.pragma_update(Some(DatabaseName::Main), "journal_mode", "WAL")?;
+    conn.pragma_update(Some(DatabaseName::Main), "busy_timeout", "5000")?;
+    conn.pragma_update(Some(DatabaseName::Main), "synchronous", "NORMAL")?;
+    conn.pragma_update(Some(DatabaseName::Main), "cache_size", "2000")?;
+    conn.pragma_update(Some(DatabaseName::Main), "temp_store", "memory")?;
+    conn.pragma_update(Some(DatabaseName::Main), "mmap_size", "4096")?;
     match conn.execute(
         "CREATE TABLE IF NOT EXISTS services (
 	    id INTEGER PRIMARY KEY,
@@ -30,8 +38,8 @@ pub fn init_sqlite(db_path: &str) -> Result<Connection, rusqlite::Error> {
 	    name TEXT UNIQUE NOT NULL,
 	    address TEXT NOT NULL,
 	    port INTEGER NOT NULL,
-	    hostname TEXT NOT NULL
-)",
+            hostname TEXT NOT NULL
+           ) STRICT;",
         [],
     ) {
         Ok(_) => (),
@@ -77,7 +85,7 @@ pub fn get_count(conn: &mut Connection) -> Result<u8, rusqlite::Error> {
 pub fn get_all_items(conn: &mut Connection) -> Result<Vec<Service>, rusqlite::Error> {
     let mut stmt = conn.prepare("SELECT * FROM services")?;
     let rows = stmt.query_map([], |row| {
-        let _id: u32 = row.get_unwrap(0);
+        // let _id: u32 = row.get_unwrap(0);
         let time: String = row.get_unwrap(1);
         let date: String = row.get_unwrap(2);
         let name: String = row.get_unwrap(3);
