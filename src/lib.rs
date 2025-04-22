@@ -443,9 +443,6 @@ pub fn mdns_scan(
         );
     }
     warn!("dropping the temp database");
-    // std::fs::remove_file(format!("{DB_PATH}/{DB_NAME}")).unwrap_or_default(); // :memory: not configured correctly
-    // Drop the database table
-
     conn.execute("DROP TABLE IF EXISTS services", [])
         .unwrap_or_default();
     conn.close().unwrap_or_default();
