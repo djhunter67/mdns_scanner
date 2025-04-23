@@ -3,11 +3,11 @@ use std::{any::Any, sync::Arc};
 use models::sqlite::{get_all_items, init_sqlite};
 use strum::IntoEnumIterator;
 use tracing::{debug, error, info, instrument, warn};
-use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
 use zeroconf::{
+    MdnsBrowser, ServiceDiscovery, ServiceType,
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
-    MdnsBrowser, ServiceDiscovery, ServiceType,
 };
 
 pub mod models;
@@ -194,6 +194,7 @@ pub struct Service {
     address: String,
     port: u16,
     hostname: String,
+    service_type: String,
 }
 
 impl TryFrom<ServiceDiscovery> for Service {
@@ -208,6 +209,7 @@ impl TryFrom<ServiceDiscovery> for Service {
             address: val.address().to_string(),
             port: *val.port(),
             hostname: val.host_name().to_string(),
+            service_type: val.service_type().name().to_string(),
         })
     }
 }
@@ -221,40 +223,66 @@ impl Service {
     )]
     pub fn as_string(&self) -> String {
         format!(
-            "Name: {}, Address: {}, Port: {}, Protocol: {}",
+            "Name: {}, Address: {}, Port: {}, Protocol: {}, Service Type: {}",
             self.name(),
             self.address(),
             self.port(),
             self.hostname(),
+            self.service_type()
         )
     }
 
     #[must_use]
-    #[instrument(name = "time discovered", target = "mdns_scanner", level = "info")]
+    #[instrument(
+        name = "time discovered",
+        target = "mdns_scanner",
+        level = "info",
+        skip(self)
+    )]
     pub fn time(&self) -> String {
         self.time.clone()
     }
 
     #[must_use]
-    #[instrument(name = "date discovered", target = "mdns_scanner", level = "info")]
+    #[instrument(
+        name = "date discovered",
+        target = "mdns_scanner",
+        level = "info",
+        skip(self)
+    )]
     pub fn date(&self) -> String {
         self.date.clone()
     }
 
     #[must_use]
-    #[instrument(name = "name of item", target = "mdns_scanner", level = "info")]
+    #[instrument(
+        name = "name of item",
+        target = "mdns_scanner",
+        level = "info",
+        skip(self)
+    )]
     pub fn name(&self) -> String {
         self.name.clone()
     }
 
     #[must_use]
-    #[instrument(name = "IP address of item", target = "mdns_scanner", level = "info")]
+    #[instrument(
+        name = "IP address of item",
+        target = "mdns_scanner",
+        level = "info",
+        skip(self)
+    )]
     pub fn address(&self) -> String {
         self.address.clone()
     }
 
     #[must_use]
-    #[instrument(name = "Port of the item", target = "mdns_scanner", level = "info")]
+    #[instrument(
+        name = "Port of the item",
+        target = "mdns_scanner",
+        level = "info",
+        skip(self)
+    )]
     pub fn port(&self) -> u16 {
         self.port
     }
@@ -263,10 +291,22 @@ impl Service {
     #[instrument(
         name = "HOSTNAME of detected devices",
         target = "mdns_scanner",
-        level = "info"
+        level = "info",
+        skip(self)
     )]
     pub fn hostname(&self) -> String {
         self.hostname.clone()
+    }
+
+    #[must_use]
+    #[instrument(
+        name = "Service type of detected devices",
+        target = "mdns_scanner",
+        level = "info",
+        skip(self)
+    )]
+    pub fn service_type(&self) -> String {
+        self.service_type.clone()
     }
 
     #[must_use]
@@ -283,6 +323,7 @@ impl Service {
             address: String::new(),
             port: 0,
             hostname: String::new(),
+            service_type: String::new(),
         }
     }
 }
@@ -327,7 +368,7 @@ pub fn mdns_scan(
                 );
                 continue;
             }
-        };
+        }
 
         info!(
             "Scanning for \'_{}\' devices",
@@ -339,53 +380,61 @@ pub fn mdns_scan(
             move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
                 // Log instead of printing
                 warn!(
-                    "Discovered: {}",
-                    result.clone().expect("No results").name()
-		);
+                    "Discovered: {:#?}",
+                    result.clone().expect("No results").service_type().name()
+		        );
                 debug!("Ip Address: {}",
-                    result.clone().expect("No results").address()
+                       result.clone().expect("No results").address()
                 );
 
                 let conn = init_sqlite(DB_PATH).expect("Unable to open database");
 
 
                 conn.execute(
-            "INSERT INTO services (time, date, name, address, port, hostname) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            [
-                chrono::Local::now().time().format("%H:%M").to_string(),
-                chrono::Local::now().date_naive().format("%Y-%b-%d").to_string(),
-                match result.clone() {
-		    Ok(res) => String::from(res.name()),
-		    Err(err) => {
-			warn!("Error data: {:#?}", result);
-			error!("Unable to parse name: {err}");
-			"Unable to parse data".into()
-		    }
-		},
-                match result.clone() {
-		    Ok(res) => String::from(res.address()),
-		    Err(err) => {
-			error!("Unable to parse address: {err}");
-			"Unable to parse data".into()
-		    }
-		},
-                match result.clone() {
-		    Ok(res) => res.port().to_string(),
-		    Err(err) => {
-			error!("Unable to parse port: {err}");
-			"Unable to parse data".into()
-		    }
-		},
-                match result {
-		    Ok(res) => String::from(res.host_name()),
-		    Err(err) => {
-			error!("Unable to parse hostname: {err}");
-			"Unable to parse data".into()
-		    }
-		}
-            ],
-            )
-            .unwrap_or_default();
+                    "INSERT INTO services (time, date, name, address, port, hostname, service_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    [
+                        chrono::Local::now().time().format("%H:%M").to_string(),
+                        chrono::Local::now().date_naive().format("%Y-%b-%d").to_string(),
+                        match result.clone() {
+		                    Ok(res) => String::from(res.name()),
+		                    Err(err) => {
+			                    warn!("Error data: {:#?}", result);
+			                    error!("Unable to parse name: {err}");
+			                    "Unable to parse data".into()
+		                    }
+		                },
+                        match result.clone() {
+		                    Ok(res) => String::from(res.address()),
+		                    Err(err) => {
+			                    error!("Unable to parse address: {err}");
+			                    "Unable to parse data".into()
+		                    }
+		                },
+                        match result.clone() {
+		                    Ok(res) => res.port().to_string(),
+		                    Err(err) => {
+			                    error!("Unable to parse port: {err}");
+			                    "Unable to parse data".into()
+		                    }
+		                },
+                        match result.clone() {
+		                    Ok(res) => String::from(res.host_name()),
+		                    Err(err) => {
+			                    error!("Unable to parse hostname: {err}");
+			                    "Unable to parse data".into()
+		                    }
+                        },
+                        match result {
+                            Ok(res) => String::from(res.service_type().name()),
+		                    Err(err) => {
+			                    error!("Unable to parse hostname: {err}");
+			                    "Unable to parse data".into()
+		                    }
+                        },
+                    ],
+                )
+                    .unwrap_or_default();
+                conn.close().expect("Unable to close the sqlite connection");
             },
         ));
 
@@ -439,6 +488,7 @@ pub fn mdns_scan(
                     address: result.address(),
                     port: result.port(),
                     hostname: result.hostname(),
+                    service_type: result.service_type.clone(),
                 }),
         );
     }

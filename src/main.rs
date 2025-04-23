@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use mdns_scanner::{get_subcriber, init_subscriber, mdns_scan, Service};
+use mdns_scanner::{Service, get_subcriber, init_subscriber, mdns_scan};
 use tracing::{info, instrument, warn};
 
 #[instrument(name = "mdns_scan main fn", target = "mdns_scanner", level = "info")]

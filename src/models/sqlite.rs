@@ -1,5 +1,5 @@
 use rusqlite::{Connection, DatabaseName};
-use tracing::instrument;
+use tracing::{error, instrument};
 
 use crate::Service;
 
@@ -38,12 +38,13 @@ pub fn init_sqlite(db_path: &str) -> Result<Connection, rusqlite::Error> {
 	    name TEXT UNIQUE NOT NULL,
 	    address TEXT NOT NULL,
 	    port INTEGER NOT NULL,
-            hostname TEXT NOT NULL
+            hostname TEXT NOT NULL,
+        service_type TEXT NOT NULL
            ) STRICT;",
         [],
     ) {
         Ok(_) => (),
-        Err(err) => eprintln!("TABLE creation error: {err}"),
+        Err(err) => error!("TABLE creation error: {err}"),
     }
 
     Ok(conn)
@@ -92,6 +93,7 @@ pub fn get_all_items(conn: &mut Connection) -> Result<Vec<Service>, rusqlite::Er
         let address: String = row.get_unwrap(4);
         let port: u16 = row.get_unwrap(5);
         let hostname: String = row.get_unwrap(6);
+        let service_type: String = row.get_unwrap(7);
 
         Ok(Service {
             time,
@@ -100,6 +102,7 @@ pub fn get_all_items(conn: &mut Connection) -> Result<Vec<Service>, rusqlite::Er
             address,
             port,
             hostname,
+            service_type,
         })
     });
 
