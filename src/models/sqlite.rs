@@ -1,5 +1,5 @@
 use rusqlite::{Connection, DatabaseName};
-use tracing::{error, instrument};
+use tracing::{debug, error, info, instrument};
 
 use crate::Service;
 
@@ -13,6 +13,7 @@ use crate::Service;
     level = "info"
 )]
 pub fn init_sqlite(db_path: &str) -> Result<(), rusqlite::Error> {
+    debug!("Establishing the db connection to initialize the db");
     let conn = match rusqlite::Connection::open(db_path) {
         Ok(conn) => conn,
         Err(err) => {
@@ -23,6 +24,7 @@ pub fn init_sqlite(db_path: &str) -> Result<(), rusqlite::Error> {
         }
     };
 
+    info!("Applying sqlite pragma optimizations");
     conn.pragma_update(Some(DatabaseName::Main), "foriegn_key", "true")?;
     conn.pragma_update(Some(DatabaseName::Main), "journal_mode", "WAL")?;
     conn.pragma_update(Some(DatabaseName::Main), "busy_timeout", "5000")?;
@@ -30,6 +32,7 @@ pub fn init_sqlite(db_path: &str) -> Result<(), rusqlite::Error> {
     conn.pragma_update(Some(DatabaseName::Main), "cache_size", "2000")?;
     conn.pragma_update(Some(DatabaseName::Main), "temp_store", "memory")?;
     conn.pragma_update(Some(DatabaseName::Main), "mmap_size", "4096")?;
+    debug!("Creating sqlite table if not exists");
     match conn.execute(
         "CREATE TABLE IF NOT EXISTS services (
 	    id INTEGER PRIMARY KEY,
@@ -46,6 +49,8 @@ pub fn init_sqlite(db_path: &str) -> Result<(), rusqlite::Error> {
         Ok(_) => (),
         Err(err) => error!("TABLE creation error: {err}"),
     }
+
+    debug!("Closing the init_sql() db connection");
     conn.close().map_err(|err| {
         error!("Unable to close the connection: {err:#?}");
         rusqlite::Error::InvalidQuery

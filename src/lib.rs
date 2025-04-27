@@ -327,7 +327,12 @@ pub fn mdns_scan(
     scan_items: Option<ServiceDetect>,
     filter: Option<&str>,
 ) -> Result<Vec<Service>, Box<dyn std::error::Error>> {
-    init_sqlite(DB_PATH).expect("Unable to open database");
+    match init_sqlite(DB_PATH) {
+        Ok(()) => (),
+        Err(err) => error!(
+            "Unable to acquire the database connection: {err}.  Please ensure proper file permission are granted to the executing user"
+        ),
+    }
 
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
