@@ -342,7 +342,8 @@ pub fn mdns_scan(
     scan_items: Option<ServiceDetect>,
     filter: Option<&str>,
 ) -> Result<Vec<Service>, Box<dyn std::error::Error>> {
-    // let mut conn = rusqlite::Connection::open(format!("{DB_PATH}/{DB_NAME}"))?;
+    init_sqlite(DB_PATH).expect("Unable to open database");
+
     let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
             MdnsBrowser::new(
@@ -374,21 +375,21 @@ pub fn mdns_scan(
             "Scanning for \'_{}\' devices",
             ServiceDetect::to_iter().get(i).expect("No service")
         );
+        // Unable to discern how to relate the integer needed to the representation of the network interfaces
         // browse.set_network_interface(zeroconf::NetworkInterface::AtIndex(3)); // Pick the connected network port
 
         browse.set_service_discovered_callback(Box::new(
             move |result: zeroconf::Result<ServiceDiscovery>, _context: Option<Arc<dyn Any>>| {
-                // Log instead of printing
                 warn!(
                     "Discovered: {:#?}",
-                    result.clone().expect("No results").service_type().name()
+                    result.clone().expect("No results").name()
 		        );
                 debug!("Ip Address: {}",
                        result.clone().expect("No results").address()
                 );
 
-                let conn = init_sqlite(DB_PATH).expect("Unable to open database");
-
+		// Expected that the db initialization has already been completetd
+		let conn = rusqlite::Connection::open(DB_PATH).expect("Unable to open database");
 
                 conn.execute(
                     "INSERT INTO services (time, date, name, address, port, hostname, service_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -456,22 +457,24 @@ pub fn mdns_scan(
                 }
             }
         } else {
-            error!("Unable to create event loop");
-            return Err("Unable to create event loop".into());
+            error!("Unable to create event loop; Please check that the avahi-daemon is running");
+            return Err(
+                "Unable to create event loop; Please check that the avahi-daemon is running".into(),
+            );
         }
     }
-    let mut conn = init_sqlite(DB_PATH)?;
+    let mut conn = rusqlite::Connection::open(DB_PATH)?;
+
     let results = get_all_items(&mut conn)?;
     let scan_count = results.len();
-    info!("Discovered {} mDns devices", scan_count);
+    debug!("Discovered {} mDns devices", scan_count);
     let mut return_vec: Vec<Service> = Vec::with_capacity(scan_count);
-    // Filter out anything that is not a poco
-
+    // Filter out anything that is not a {user passed in} unless no filter is supplied
     if filter.is_none() {
         debug!("No filter provided, returning all results");
         return_vec.extend(results);
     } else {
-        info!("Filtering results by \'{}\'", filter.unwrap_or_default());
+        debug!("Filtering results by \'{}\'", filter.unwrap_or_default());
         return_vec.extend(
             results
                 .iter()
@@ -501,6 +504,7 @@ pub fn mdns_scan(
 }
 
 #[must_use]
+/// Establish the configuration and output of the log statements
 /// # Result
 ///  - `None` if the `RUST_LOG` environment variable is not set
 /// # Errors
@@ -532,6 +536,7 @@ pub fn get_subcriber(debug: bool) -> impl tracing::Subscriber + Send + Sync {
     subscriber.with(json_log)
 }
 
+/// Initialize the subscriber with `debug` or not as `true` or `false`
 /// # Result
 ///  - `None` if the `RUST_LOG` environment variable is not set
 /// # Errors

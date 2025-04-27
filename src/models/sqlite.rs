@@ -12,7 +12,7 @@ use crate::Service;
     target = "mdns_scanner",
     level = "info"
 )]
-pub fn init_sqlite(db_path: &str) -> Result<Connection, rusqlite::Error> {
+pub fn init_sqlite(db_path: &str) -> Result<(), rusqlite::Error> {
     let conn = match rusqlite::Connection::open(db_path) {
         Ok(conn) => conn,
         Err(err) => {
@@ -46,8 +46,12 @@ pub fn init_sqlite(db_path: &str) -> Result<Connection, rusqlite::Error> {
         Ok(_) => (),
         Err(err) => error!("TABLE creation error: {err}"),
     }
+    conn.close().map_err(|err| {
+        error!("Unable to close the connection: {err:#?}");
+        rusqlite::Error::InvalidQuery
+    })?;
 
-    Ok(conn)
+    Ok(())
 }
 
 /// # Panics

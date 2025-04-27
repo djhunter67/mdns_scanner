@@ -12,14 +12,16 @@ fn main() -> Result<(), Box<dyn Error>> {
     // let results: Vec<Service> = mdns_scan(Some(ServiceDetect::Http), None)?;
     let results: Vec<Service> = mdns_scan(None, None)?; // Open scan
 
-    for item in &results {
-        warn!("Name: {}", item.name());
-        warn!("Address: {}", item.address());
-        warn!("Port: {}", item.port());
-        warn!("Host Name: {}", item.hostname());
-    }
+    // for item in &results {
+    // warn!("Name: {}", item.name());
+    // warn!("Address: {}", item.address());
+    // warn!("Port: {}", item.port());
+    // warn!("Host Name: {}", item.hostname());
+    // }
 
-    info!("Scan results: {}", results.len());
+    info!("Scan results: {results:#?}");
+
+    info!("Number of results : {}", results.len());
 
     Ok(())
 }
