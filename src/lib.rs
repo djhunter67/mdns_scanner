@@ -157,21 +157,6 @@ impl From<ServiceDetect> for &str {
 ///  - `address()`: The IP address of the service
 ///  - `port()`: The port of the service
 ///  - `hostname()`: The hostname of the service
-/// # Example
-/// ```
-/// let service = Service {
-///     time: String::new(),
-///     date: String::new(),
-///     name: String::from("Test Service"),
-///     address: String::from(192.168.33.268),
-///     port: 8080,
-///     hostname: String::from("Test Hostname"),
-/// };
-/// assert_eq!(service.name(), "Test Service");
-/// assert_eq!(service.address(), "192.168.33.268");
-/// assert_eq!(service.port(), 8080);
-/// assert_eq!(service.hostname(), "Test Hostname");
-/// ```
 ///
 /// # Service
 ///  - Struct to hold the discovered service information
@@ -335,7 +320,7 @@ impl Service {
 /// # Panics
 ///   - If the database cannot be created or opened
 /// # Parameters
-///   - `scan_items`: The mDns protocol for with to scan; ex. ``ServiceDetect::Http`` or ``ServiceDetect::Scanner``
+///   - `scan_items`: The mDns protocol for with to scan; ex. ``Some(ServiceDetect::Http)`` or ``Some(ServiceDetect::Scanner)``
 ///   - `filter`: The filter to apply to the scan results; ex. ``"Some(poco)"`` or ``"Some(printer)"`` or ``"Some(samsung)"``
 #[instrument(name = "mDns Scan", target = "mdns_scanner", level = "info")]
 pub fn mdns_scan(
@@ -468,7 +453,12 @@ pub fn mdns_scan(
     let results = get_all_items(&mut conn)?;
     let scan_count = results.len();
     debug!("Discovered {} mDns devices", scan_count);
+    if scan_count == 0 {
+        warn!("No devices discovered");
+        return Ok(vec![]);
+    }
     let mut return_vec: Vec<Service> = Vec::with_capacity(scan_count);
+
     // Filter out anything that is not a {user passed in} unless no filter is supplied
     if filter.is_none() {
         debug!("No filter provided, returning all results");
@@ -545,4 +535,57 @@ pub fn get_subcriber(debug: bool) -> impl tracing::Subscriber + Send + Sync {
 ///  - If the `RUST_LOG` environment variable is set but the value is invalid
 pub fn init_subscriber(subscriber: impl tracing::Subscriber + Send + Sync) {
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+}
+
+// Tests
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+    use tracing_test::traced_test;
+
+    #[traced_test("debug")]
+    #[rstest::fixture]
+    fn setup() {
+        info!("Check if the avahi-daemon is running");
+        let output = std::process::Command::new("systemctl")
+            .arg("is-active")
+            .arg("avahi-daemon")
+            .output()
+            .expect("Failed to execute command");
+        if !output.status.success() {
+            error!("avahi-daemon is not running");
+            warn!("Prompting to start the avahi-daemon");
+            let starter = std::process::Command::new("systemctl")
+                .arg("start")
+                .arg("avahi-daemon")
+                .output()
+                .expect("Failed to start avahi-daemon");
+            assert!(starter.status.success());
+        }
+        assert!(output.status.success());
+    }
+
+    #[traced_test("debug")]
+    #[rstest]
+    fn test_mdns_scan(setup: ()) {
+        let _: () = setup;
+        info!("Starting mDns scan");
+        let result = mdns_scan(Some(ServiceDetect::Http), None);
+        info!("mDns scan completed");
+        assert!(result.is_ok());
+        assert!(!result.unwrap().is_empty());
+    }
+
+    #[traced_test("debug")]
+    #[rstest]
+    fn test_mdns_scan_with_filter_not_found(setup: ()) {
+        let _: () = setup;
+        info!("Starting mDns scan with filter");
+        let result = mdns_scan(Some(ServiceDetect::Http), Some("shrnsto"));
+        info!("mDns scan with filter completed");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty());
+    }
 }
