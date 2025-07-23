@@ -24,18 +24,17 @@ pub fn init_sqlite(db_path: &str) -> Result<(), rusqlite::Error> {
         }
     };
 
-    info!("Applying sqlite pragma optimizations");
-    conn.pragma_update(Some(DatabaseName::Main), "foriegn_key", "true")?;
-    conn.pragma_update(Some(DatabaseName::Main), "journal_mode", "WAL")?;
-    conn.pragma_update(Some(DatabaseName::Main), "busy_timeout", "5000")?;
+    conn.pragma_update(Some(DatabaseName::Main), "foriegn_key", "true")?; // Good for web use
+    conn.pragma_update(Some(DatabaseName::Main), "journal_mode", "WAL")?; // Write ahead log -> WAY faster writing
+    conn.pragma_update(Some(DatabaseName::Main), "busy_timeout", "5000")?; // Don't hog the write lock forever
     conn.pragma_update(Some(DatabaseName::Main), "synchronous", "NORMAL")?;
-    conn.pragma_update(Some(DatabaseName::Main), "cache_size", "2000")?;
-    conn.pragma_update(Some(DatabaseName::Main), "temp_store", "memory")?;
-    conn.pragma_update(Some(DatabaseName::Main), "mmap_size", "4096")?;
-    debug!("Creating sqlite table if not exists");
+    conn.pragma_update(Some(DatabaseName::Main), "cache_size", "2000")?; // 2MB in-memory cache
+    conn.pragma_update(Some(DatabaseName::Main), "temp_store", "memory")?; // Cache location
+    conn.pragma_update(Some(DatabaseName::Main), "mmap_size", "4096")?; // Maybe nothing...
+
     match conn.execute(
         "CREATE TABLE IF NOT EXISTS services (
-	    id INTEGER PRIMARY KEY,
+	    id INTEGER PRIMARY KEY AUTOINCREMENT,
             time TEXT NOT NULL,
             date TEXT NOT NULL,            
 	    name TEXT UNIQUE NOT NULL,

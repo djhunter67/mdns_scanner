@@ -344,7 +344,7 @@ pub fn mdns_scan(
         .try_into()
         .expect("Unable to convert to array");
 
-    let scan_time: u16 = 2000;
+    let scan_time: u16 = 200;
 
     for (i, browse) in browser.iter_mut().enumerate() {
         if let Some(ref scan_items) = scan_items {
