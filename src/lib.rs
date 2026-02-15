@@ -3,11 +3,11 @@ use std::{any::Any, sync::Arc};
 use models::sqlite::{get_all_items, init_sqlite};
 use strum::IntoEnumIterator;
 use tracing::{debug, error, info, instrument, warn};
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
+use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 use zeroconf::{
-    MdnsBrowser, ServiceDiscovery, ServiceType,
     avahi::browser::AvahiMdnsBrowser,
     prelude::{TEventLoop, TMdnsBrowser},
+    MdnsBrowser, ServiceDiscovery, ServiceType,
 };
 
 pub mod models;
@@ -334,7 +334,7 @@ pub fn mdns_scan(
         ),
     }
 
-    let mut browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
+    let browser: [AvahiMdnsBrowser; ServiceDetect::length()] = ServiceDetect::iter()
         .map(|val| {
             MdnsBrowser::new(
                 ServiceType::new(val.into(), "tcp").expect("Unable to create service type"),
@@ -346,7 +346,7 @@ pub fn mdns_scan(
 
     let scan_time: u16 = 200;
 
-    for (i, browse) in browser.iter_mut().enumerate() {
+    for (i, mut browse) in browser.into_iter().enumerate() {
         if let Some(ref scan_items) = scan_items {
             if ServiceDetect::to_iter()
                 .get(i)
@@ -384,8 +384,8 @@ pub fn mdns_scan(
                 conn.execute(
                     "INSERT INTO services (time, date, name, address, port, hostname, service_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     [
-                        chrono::Local::now().time().format("%H:%M").to_string(),
-                        chrono::Local::now().date_naive().format("%Y-%b-%d").to_string(),
+                        chrono::Local::now().time().format("%H:%M:%S").to_string(),
+                        chrono::Local::now().date_naive().format("%Y-%b-%d").to_string().to_uppercase(),
                         match result.clone() {
 		                    Ok(res) => String::from(res.name()),
 		                    Err(err) => {

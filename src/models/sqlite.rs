@@ -24,6 +24,7 @@ pub fn init_sqlite(db_path: &str) -> Result<(), rusqlite::Error> {
         }
     };
 
+    info!("Setting sqlite pragma settings");
     conn.pragma_update(Some(DatabaseName::Main), "foriegn_key", "true")?; // Good for web use
     conn.pragma_update(Some(DatabaseName::Main), "journal_mode", "WAL")?; // Write ahead log -> WAY faster writing
     conn.pragma_update(Some(DatabaseName::Main), "busy_timeout", "5000")?; // Don't hog the write lock forever
