@@ -10,8 +10,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     init_subscriber(tracing_subscriber);
     // let results: Vec<Service> = mdns_scan(Some(mdns_scanner::ServiceDetect::Http), Some("poco"))?;
     // let results: Vec<Service> = mdns_scan(Some(mdns_scanner::ServiceDetect::Http), None)?;
-    // let results: Vec<Service> = mdns_scan(None, None)?; // Open scan
-    let results: Vec<Service> = mdns_scan(Some(mdns_scanner::ServiceDetect::SftpSsh), None)?; // unRaid sftp_ssh broadcast
+
+    // let results: Vec<Service> = mdns_scan(Some(mdns_scanner::ServiceDetect::SftpSsh), None)?; // unRaid sftp_ssh broadcast
+    let results: Vec<Service> = mdns_scan(None, None)?; // Open scan
 
     // for item in &results {
     // warn!("Name: {}", item.name());
