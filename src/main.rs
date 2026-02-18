@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use mdns_scanner::{Service, get_subcriber, init_subscriber, mdns_scan};
+use mdns_scanner::{get_subcriber, init_subscriber, mdns_scan, Service};
 use tracing::{info, instrument, warn};
 
 #[instrument(name = "mdns_scan main fn", target = "mdns_scanner", level = "info")]
@@ -8,9 +8,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tracing_subscriber = get_subcriber(true);
 
     init_subscriber(tracing_subscriber);
-    // let results: Vec<Service> = mdns_scan(Some(ServiceDetect::Http), Some("poco"))?;
-    // let results: Vec<Service> = mdns_scan(Some(ServiceDetect::Http), None)?;
-    let results: Vec<Service> = mdns_scan(None, None)?; // Open scan
+    // let results: Vec<Service> = mdns_scan(Some(mdns_scanner::ServiceDetect::Http), Some("poco"))?;
+    // let results: Vec<Service> = mdns_scan(Some(mdns_scanner::ServiceDetect::Http), None)?;
+    // let results: Vec<Service> = mdns_scan(None, None)?; // Open scan
+    let results: Vec<Service> = mdns_scan(Some(mdns_scanner::ServiceDetect::SftpSsh), None)?; // unRaid sftp_ssh broadcast
 
     // for item in &results {
     // warn!("Name: {}", item.name());
